@@ -259,11 +259,11 @@ private:
 class crt::kernel
 {
 public:
-    struct node_t;
-    using map_t = std::unordered_map<std::string, node_t>;
+    struct rule_t;
+    using map_t = std::unordered_map<std::string, rule_t>;
     using set_t = std::unordered_set<std::string>;
 
-    struct node_t
+    struct rule_t
     {
         expression expr;
         linb::any value;
@@ -275,75 +275,75 @@ public:
 
     void insert(const std::string& key, const expression& expr)
     {
-        node_t node;
-        node.expr = expr;
-        nodes.emplace(key, node);
+        rule_t rule;
+        rule.expr = expr;
+        rules.emplace(key, rule);
     }
 
     void insert(const std::string& key, const linb::any& value)
     {
-        node_t node;
-        node.value = value;
-        nodes.emplace(key, node);
+        rule_t rule;
+        rule.value = value;
+        rules.emplace(key, rule);
     }
 
     void erase(const std::string& key)
     {
-        nodes.erase(key);
+        rules.erase(key);
         dirty.erase(key);
     }
 
     const expression& expr_at(const std::string& key)
     {
-        return nodes.at(key).expr;
+        return rules.at(key).expr;
     }
 
     const linb::any& at(const std::string& key)
     {
-        return nodes.at(key).value;
+        return rules.at(key).value;
     }
 
     std::size_t size() const
     {
-        return nodes.size();
+        return rules.size();
     }
 
     bool contains(const std::string& key) const
     {
-        return nodes.find(key) != nodes.end();
+        return rules.find(key) != rules.end();
     }
 
-    /** Return the incoming edges for the given node. An empty set is returned if
+    /** Return the incoming edges for the given rule. An empty set is returned if
         the key does not exist in the graph.
     */
     set_t incoming(const std::string& key) const
     {
-        auto node = nodes.find(key);
+        auto rule = rules.find(key);
 
-        if (node == nodes.end())
+        if (rule == rules.end())
         {
             return {};
         }
-        return node->second.incoming;
+        return rule->second.incoming;
     }
 
-    /** Return the outgoing edges for the given node. Even if that node does not exist
-        in the graph, it may have outgoing edges if other nodes in the graph name it
-        as a dependency. If the node does exist in the graph, this is a fast operation
+    /** Return the outgoing edges for the given rule. Even if that rule does not exist
+        in the graph, it may have outgoing edges if other rules in the graph name it
+        as a dependency. If the rule does exist in the graph, this is a fast operation
         because outgoing edges are cached and kept up-to-date.
     */
     set_t outgoing(const std::string& key) const
     {
-        auto node = nodes.find(key);
+        auto rule = rules.find(key);
 
-        if (node == nodes.end())
+        if (rule == rules.end())
         {
             set_t out;
             /*
-             Search the graph for nodes naming key as a dependency, and add those nodes
+             Search the graph for rules naming key as a dependency, and add those rules
              to the list of outgoing edges.
              */
-            for (const auto& other : nodes)
+            for (const auto& other : rules)
             {
                 const auto& i = other.second.incoming;
 
@@ -354,21 +354,21 @@ public:
             }
             return out;
         }
-        return node->second.outgoing;
+        return rule->second.outgoing;
     }
 
     auto begin() const
     {
-        return nodes.begin();
+        return rules.begin();
     }
 
     auto end() const
     {
-        return nodes.end();
+        return rules.end();
     }
 
 private:
-    map_t nodes;
+    map_t rules;
     set_t dirty;
 };
 
