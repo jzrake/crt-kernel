@@ -273,24 +273,55 @@ public:
         set_t outgoing;
     };
 
-    void insert(const std::string& key, const expression& expr)
+    set_t insert(const std::string& key, const expression& expr)
     {
         rule_t rule;
         rule.expr = expr;
+        rule.incoming = expr.symbols();
+
+        /* kernel::outgoing is O(N) if key is not already in the graph. */
+        rule.outgoing = outgoing(key);
+
+        /* Add the new node as an outoing edge for all of its incomings. */
+        for (const auto& i : rule.incoming)
+            if (contains(i))
+                rules.at(i).outgoing.insert(key);
+
         rules.emplace(key, rule);
+        return downstream(key);
     }
 
-    void insert(const std::string& key, const linb::any& value)
+    set_t insert(const std::string& key, const linb::any& value)
     {
         rule_t rule;
         rule.value = value;
+        rule.incoming = {};
+        rule.outgoing = outgoing(key);
         rules.emplace(key, rule);
+        return downstream(key);
     }
 
-    void erase(const std::string& key)
+    set_t erase(const std::string& key)
     {
-        rules.erase(key);
-        dirty.erase(key);
+        auto rule = rules.find(key);
+        auto affected = downstream(key);
+
+        if (rule == rules.end())
+        {
+            return {};
+        }
+
+        for (const auto& i : rule->second.incoming)
+        {
+            auto upstream = rules.find(i);
+
+            if (upstream != rules.end())
+            {
+                upstream->second.outgoing.erase(key);
+            }
+        }
+        rules.erase(rule);
+        return affected;
     }
 
     const expression& expr_at(const std::string& key)
@@ -327,6 +358,22 @@ public:
         return rule->second.incoming;
     }
 
+    /** Return all rules that this rule depends on.
+    */
+    set_t upstream(const std::string& key) const
+    {
+        auto res = incoming(key);
+
+        for (const auto& k : incoming(key))
+        {
+            for (const auto& m : upstream(k))
+            {
+                res.insert(m);
+            }
+        }
+        return res;
+    }
+
     /** Return the outgoing edges for the given rule. Even if that rule does not exist
         in the graph, it may have outgoing edges if other rules in the graph name it
         as a dependency. If the rule does exist in the graph, this is a fast operation
@@ -357,6 +404,23 @@ public:
         return rule->second.outgoing;
     }
 
+    /** Return all rules that depend on the given rule. Note that adding and
+        removing rules from the kernel influences the downstream keys.
+    */
+    set_t downstream(const std::string& key) const
+    {
+        auto res = outgoing(key);
+
+        for (const auto& k : outgoing(key))
+        {
+            for (const auto& m : downstream(k))
+            {
+                res.insert(m);
+            }
+        }
+        return res;
+    }
+
     auto begin() const
     {
         return rules.begin();
@@ -369,7 +433,6 @@ public:
 
 private:
     map_t rules;
-    set_t dirty;
 };
 
 
@@ -707,6 +770,31 @@ TEST_CASE("kernel can be constructed", "[kernel]")
     k.insert("b", expression(1));
 
     REQUIRE(k.size() == 2);
+}
+
+
+
+
+TEST_CASE("kernel computes downstream nodes correctly", "[kernel]")
+{
+    kernel k;
+
+    k.insert("a", expression::symbol("b"));
+    k.insert("b", expression::symbol("c"));
+
+    REQUIRE(expression::symbol("a").symbols() == kernel::set_t{"a"});
+    REQUIRE(k.incoming("a") == kernel::set_t{"b"});
+    REQUIRE(k.upstream("a") == kernel::set_t{"b", "c"});
+
+    REQUIRE(k.downstream("c") == kernel::set_t{"a", "b"});
+    REQUIRE(k.downstream("b") == kernel::set_t{"a"});
+
+    k.erase("a");
+    REQUIRE(k.downstream("c") == kernel::set_t{"b"});
+    REQUIRE(k.downstream("b") == kernel::set_t{});
+
+    k.insert("a", {expression::symbol("b"), expression::symbol("d")});
+    REQUIRE(k.upstream("a") == kernel::set_t{"b", "c", "d"});
 }
 
 #endif
