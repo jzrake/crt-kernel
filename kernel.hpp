@@ -283,7 +283,6 @@ public:
     {
         expression expr;
         linb::any value;
-        std::string key;
         std::string error;
         set_t incoming;
         set_t outgoing;
@@ -297,7 +296,7 @@ public:
     {
         if (cyclic(key, expr))
         {
-            throw std::invalid_argument("would create cyclic dependency");
+            throw std::invalid_argument("would create dependency cycle");
         }
         reconnect(key, expr);
 
@@ -329,7 +328,7 @@ public:
         rule.incoming = {};
         rule.outgoing = outgoing(key);
         rules.emplace(key, rule);
-        return mark(downstream(key, true));
+        return mark(downstream(key));
     }
 
     /** Remove the rule with the given key from the graph, and return the keys of
@@ -383,6 +382,34 @@ public:
     bool dirty(const std::string& key) const
     {
         return contains(key) ? rules.at(key).dirty : false;
+    }
+
+    /** Return true if none of the given rules are dirty. */
+    bool current(const set_t& keys) const
+    {
+        for (const auto& k : keys)
+        {
+            if (dirty(k))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Return all the rules that are dirty. */
+    set_t dirty_rules() const
+    {
+        set_t res;
+
+        for (const auto& rule : rules)
+        {
+            if (rule.second.dirty)
+            {
+                res.insert(rule.first);
+            }
+        }
+        return res;
     }
 
     /** Return true if the graph contains a rule with the given key. */
@@ -470,7 +497,6 @@ public:
         return out;
     }
 
-
     /** Return all rules that depend on the given rule. Note that adding and
         removing rules from the kernel influences the downstream keys.
     */
@@ -527,18 +553,39 @@ public:
         }
     }
 
-    void update(const std::string& key)
+    bool update(const std::string& key)
     {
         auto& rule = rules.at(key);
 
-        for (const auto& k : rule.incoming)
+        if (! current(rule.incoming))
         {
-            if (dirty(k))
+            return false;
+        }
+        if (rule.dirty)
+        {
+            rule.value = resolve(key, rule.error);
+            rule.dirty = false;
+        }
+        return true;
+    }
+
+    void update_recurse(const std::string& key)
+    {
+        if (update(key))
+        {
+            for (const auto& k : outgoing(key))
             {
-                throw std::invalid_argument("cannot update rule with unresolved dependencies");
+                update_recurse(k);
             }
         }
-        rule.value = resolve(key, rule.error);
+    }
+
+    void update_all(const set_t& keys)
+    {
+        for (const auto& key : keys)
+        {
+            update_recurse(key);
+        }
     }
 
 private:
@@ -653,11 +700,11 @@ private:
         }
         else if (isdec || isexp)
         {
-            return expression(atof(std::string (start, c - start).data()));
+            return expression(atof(std::string(start, c - start).data()));
         }
         else
         {
-            return expression(atoi(std::string (start, c - start).data()));
+            return expression(atoi(std::string(start, c - start).data()));
         }
     }
 
@@ -665,7 +712,7 @@ private:
     {
         const char* start = c;
 
-        while (is_symbol_character (*c))
+        while (is_symbol_character(*c))
         {
             ++c;
         }
@@ -688,7 +735,7 @@ private:
 
         ++c;
 
-        if (! (isspace (*c) || *c == '\0' || *c == ')'))
+        if (! (isspace(*c) || *c == '\0' || *c == ')'))
         {
             throw std::runtime_error("syntax error: non-whitespace character following single-quoted string");
         }
@@ -935,11 +982,40 @@ TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
 {
     kernel k;
 
-    k.insert("a", expression::symbol("b"));
-    k.insert("b", expression::symbol("c"));
+    SECTION("graph with two rules")
+    {
+        k.insert("a", expression::symbol("b"));
+        k.insert("b", expression::symbol("c"));
 
-    REQUIRE(k.dirty("a"));
-    REQUIRE(k.dirty("b"));
-    REQUIRE_FALSE(k.dirty("c"));
+        REQUIRE(k.dirty("a"));
+        REQUIRE(k.dirty("b"));
+        REQUIRE_FALSE(k.dirty("c"));
+    }
+
+    SECTION("graph with two rules and a value")
+    {
+        k.insert("a", expression::symbol("b"));
+        k.insert("b", expression::symbol("c"));
+        k.insert("c", linb::any(12));
+
+        SECTION("can be updated incrementally")
+        {
+            REQUIRE(k.dirty("a"));
+            REQUIRE(k.dirty("b"));
+            REQUIRE_FALSE(k.dirty("c"));
+            REQUIRE_FALSE(k.update("a"));
+            REQUIRE(k.update("b"));
+            REQUIRE(k.update("a"));
+            REQUIRE_FALSE(k.dirty("a"));
+            REQUIRE_FALSE(k.dirty("b"));
+        }
+
+        SECTION("can be updated all at once")
+        {
+            REQUIRE(k.dirty_rules() == kernel::set_t{"a", "b"});
+            k.update_all(k.dirty_rules());
+            REQUIRE(k.dirty_rules() == kernel::set_t{});
+        }
+    }
 }
 #endif
