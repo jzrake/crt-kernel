@@ -104,6 +104,31 @@ public:
         return dict_parts;
     }
 
+    std::unordered_set<std::string> symbols() const
+    {
+        switch (type)
+        {
+            case data_type::none     : return {};
+            case data_type::i32      : return {};
+            case data_type::f64      : return {};
+            case data_type::str      : return {};
+            case data_type::symbol   : return {valsym};
+            case data_type::composite:
+            {
+                std::unordered_set<std::string> res;
+
+                for (const auto& part : parts)
+                {
+                    for (const auto& s : part.symbols())
+                    {
+                        res.insert(s);
+                    }
+                }
+                return res;
+            }
+        }
+    }
+
     const expression& at(std::size_t index) const
     {
         return parts.at(index);
@@ -119,6 +144,16 @@ public:
         return
         (type == data_type::none) ||
         (type == data_type::composite && parts.empty());
+    }
+
+    auto begin() const
+    {
+        return parts.begin();
+    }
+
+    auto end() const
+    {
+        return parts.end();
     }
 
     double get_i32() const
@@ -171,32 +206,8 @@ public:
         }
     }
 
-    std::unordered_set<std::string> symbols() const
-    {
-        switch (type)
-        {
-            case data_type::none     : return {};
-            case data_type::i32      : return {};
-            case data_type::f64      : return {};
-            case data_type::str      : return {};
-            case data_type::symbol   : return {valsym};
-            case data_type::composite:
-            {
-                std::unordered_set<std::string> res;
-
-                for (const auto& part : parts)
-                {
-                    for (const auto& s : part.symbols())
-                    {
-                        res.insert(s);
-                    }
-                }
-                return res;
-            }
-        }
-    }
-
-    linb::any evaluate(const dict_t& scope) const
+    template<typename Mapping>
+    linb::any resolve(const Mapping& scope) const
     {
         switch (type)
         {
@@ -212,11 +223,11 @@ public:
 
                 for (const auto& a : list())
                 {
-                    args.push_back(a.evaluate(scope));
+                    args.push_back(a.resolve(scope));
                 }
                 for (const auto& p : dict())
                 {
-                    kwar.emplace(p.first, p.second.evaluate(scope));
+                    kwar.emplace(p.first, p.second.resolve(scope));
                 }
                 auto head = linb::any_cast<func_t>(scope.at(parts.at(0).valsym));
                 return head(args, kwar);
@@ -259,10 +270,15 @@ private:
 class crt::kernel
 {
 public:
+
+
+    // ========================================================================
     struct rule_t;
     using map_t = std::unordered_map<std::string, rule_t>;
     using set_t = std::unordered_set<std::string>;
 
+
+    // ========================================================================
     struct rule_t
     {
         expression expr;
@@ -271,77 +287,132 @@ public:
         std::string error;
         set_t incoming;
         set_t outgoing;
+        bool dirty;
     };
 
+
+    /** Add a rule to the graph.
+     */
     set_t insert(const std::string& key, const expression& expr)
     {
-        rule_t rule;
+        if (cyclic(key, expr))
+        {
+            throw std::invalid_argument("would create cyclic dependency");
+        }
+        reconnect(key, expr);
+
+        auto rule = rule_t();
         rule.expr = expr;
         rule.incoming = expr.symbols();
-
-        /* kernel::outgoing is O(N) if key is not already in the graph. */
         rule.outgoing = outgoing(key);
 
-        /* Add the new node as an outoing edge for all of its incomings. */
         for (const auto& i : rule.incoming)
+        {
             if (contains(i))
+            {
                 rules.at(i).outgoing.insert(key);
-
+            }
+        }
         rules.emplace(key, rule);
-        return downstream(key);
+        return mark(downstream(key, true));
     }
 
+    /** Add a literal rule to the graph. The expression for this rule is empty, and
+        its value is always the one given.
+     */
     set_t insert(const std::string& key, const linb::any& value)
     {
-        rule_t rule;
+        reconnect(key, {});
+
+        auto rule = rule_t();
         rule.value = value;
         rule.incoming = {};
         rule.outgoing = outgoing(key);
         rules.emplace(key, rule);
-        return downstream(key);
+        return mark(downstream(key, true));
     }
 
+    /** Remove the rule with the given key from the graph, and return the keys of
+        affected (downstream) rules.
+    */
     set_t erase(const std::string& key)
     {
-        auto rule = rules.find(key);
-        auto affected = downstream(key);
+        reconnect(key, {});
 
-        if (rule == rules.end())
+        if (! contains(key))
         {
             return {};
         }
 
-        for (const auto& i : rule->second.incoming)
-        {
-            auto upstream = rules.find(i);
-
-            if (upstream != rules.end())
-            {
-                upstream->second.outgoing.erase(key);
-            }
-        }
-        rules.erase(rule);
-        return affected;
+        auto affected = downstream(key);
+        rules.erase(key);
+        return mark(affected);
     }
 
-    const expression& expr_at(const std::string& key)
+    /** Mark the rules at the given keys as being dirty. Return the same set of
+        keys.
+    */
+    set_t mark(const set_t& keys)
+    {
+        for (const auto& key : keys)
+        {
+            rules.at(key).dirty = true;
+        }
+        return keys;
+    }
+
+    /** Return the expression associated with the rule at the given key. The expression is
+        empty if this is a literal rule.
+    */
+    const expression& expr_at(const std::string& key) const
     {
         return rules.at(key).expr;
     }
 
-    const linb::any& at(const std::string& key)
+    /** Return the value associated with the rule at the given key. This function
+        throws if the key does not exist.
+    */
+    const linb::any& at(const std::string& key) const
     {
         return rules.at(key).value;
     }
 
+    /** Return true if upstream rules have changed since this rule was last
+        resolved. Rules that are not in the graph are always up-to-date.
+    */
+    bool dirty(const std::string& key) const
+    {
+        return contains(key) ? rules.at(key).dirty : false;
+    }
+
+    /** Return true if the graph contains a rule with the given key. */
+    bool contains(const std::string& key) const
+    {
+        return rules.find(key) != rules.end();
+    }
+
+    /** Return the number of rules in the graph.*/
     std::size_t size() const
     {
         return rules.size();
     }
 
-    bool contains(const std::string& key) const
+    /** Return true if the graph is empty.*/
+    bool empty() const
     {
-        return rules.find(key) != rules.end();
+        return rules.empty();
+    }
+
+    /** Return the begin iterator to the container of rules.*/
+    auto begin() const
+    {
+        return rules.begin();
+    }
+
+    /** Return the end iterator to the container of rules.*/
+    auto end() const
+    {
+        return rules.end();
     }
 
     /** Return the incoming edges for the given rule. An empty set is returned if
@@ -349,17 +420,14 @@ public:
     */
     set_t incoming(const std::string& key) const
     {
-        auto rule = rules.find(key);
-
-        if (rule == rules.end())
+        if (contains(key))
         {
-            return {};
+            return rules.at(key).incoming;
         }
-        return rule->second.incoming;
+        return {};
     }
 
-    /** Return all rules that this rule depends on.
-    */
+    /** Return all rules that this rule depends on. */
     set_t upstream(const std::string& key) const
     {
         auto res = incoming(key);
@@ -381,33 +449,32 @@ public:
     */
     set_t outgoing(const std::string& key) const
     {
-        auto rule = rules.find(key);
-
-        if (rule == rules.end())
+        if (contains(key))
         {
-            set_t out;
-            /*
-             Search the graph for rules naming key as a dependency, and add those rules
-             to the list of outgoing edges.
-             */
-            for (const auto& other : rules)
-            {
-                const auto& i = other.second.incoming;
-
-                if (std::find(i.begin(), i.end(), key) != i.end())
-                {
-                    out.insert(other.first);
-                }
-            }
-            return out;
+            return rules.at(key).outgoing;
         }
-        return rule->second.outgoing;
+
+        /*
+         Search the graph for rules naming key as a dependency, and add those rules
+         to the list of outgoing edges.
+         */
+        set_t out;
+
+        for (const auto& rule : rules)
+        {
+            if (incoming(rule.first).count(key))
+            {
+                out.insert(rule.first);
+            }
+        }
+        return out;
     }
+
 
     /** Return all rules that depend on the given rule. Note that adding and
         removing rules from the kernel influences the downstream keys.
     */
-    set_t downstream(const std::string& key) const
+    set_t downstream(const std::string& key, bool inclusive=false) const
     {
         auto res = outgoing(key);
 
@@ -418,20 +485,81 @@ public:
                 res.insert(m);
             }
         }
+        if (inclusive)
+        {
+            res.insert(key);
+        }
         return res;
     }
 
-    auto begin() const
+    /** Return true if addition of the given rule would create a dependency
+        cycle in the graph. This checks for whether any of the rules downstream
+        of the given key are symbols in expr.
+     */
+    bool cyclic(const std::string& key, const expression& expr)
     {
-        return rules.begin();
+        auto dependents = downstream(key, true);
+
+        for (const auto& k : expr.symbols())
+        {
+            if (dependents.count(k) != 0)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
-    auto end() const
+    /** Return the value of the given rule, catching any exceptions that arise
+        and returning them in the error string.
+    */
+    linb::any resolve(const std::string& key, std::string& error) const
     {
-        return rules.end();
+        try {
+            error.clear();
+            auto rule = rules.at(key);
+            return rule.expr.empty() ? rule.value : rule.expr.resolve(*this);
+        }
+        catch (std::exception& e)
+        {
+            error = e.what();
+            return linb::any();
+        }
+    }
+
+    void update(const std::string& key)
+    {
+        auto& rule = rules.at(key);
+
+        for (const auto& k : rule.incoming)
+        {
+            if (dirty(k))
+            {
+                throw std::invalid_argument("cannot update rule with unresolved dependencies");
+            }
+        }
+        rule.value = resolve(key, rule.error);
     }
 
 private:
+    // ========================================================================
+    void reconnect(const std::string& key, const expression& expr)
+    {
+        for (const auto& k : incoming(key))
+        {
+            if (contains(k))
+            {
+                rules.at(k).outgoing.erase(key);
+            }
+        }
+        for (const auto& k : expr.symbols())
+        {
+            if (contains(k))
+            {
+                rules.at(k).outgoing.insert(key);
+            }
+        }
+    }
     map_t rules;
 };
 
@@ -441,8 +569,14 @@ private:
 // ============================================================================
 class crt::parser
 {
-public:
 
+public:
+    static expression parse(const char* expr)
+    {
+        return parse_part(expr);
+    }
+
+private:
     static bool is_symbol_character(char e)
     {
         return isalnum(e) || e == '_' || e == '-' || e == ':';
@@ -591,8 +725,7 @@ public:
 
     static expression parse_part(const char*& c)
     {
-        const char* kw = nullptr;
-        std::size_t kwlen = 0;
+        std::string kw;
 
         while (*c != '\0')
         {
@@ -602,23 +735,23 @@ public:
             }
             else if (const char* kwstart = get_named_part(c))
             {
-                kwlen = c - (kw = kwstart) - 1;
+                kw = std::string(kwstart, c - 1);
             }
             else if (is_number(c))
             {
-                return parse_number(c).keyed(std::string(kw, kw + kwlen));
+                return parse_number(c).keyed(kw);
             }
             else if (isalpha(*c))
             {
-                return parse_symbol(c).keyed(std::string(kw, kw + kwlen));
+                return parse_symbol(c).keyed(kw);
             }
             else if (*c == '\'')
             {
-                return parse_single_quoted_string(c).keyed(std::string(kw, kw + kwlen));
+                return parse_single_quoted_string(c).keyed(kw);
             }
             else if (*c == '(')
             {
-                return parse_expression(c).keyed(std::string(kw, kw + kwlen));
+                return parse_expression(c).keyed(kw);
             }
             else
             {
@@ -626,11 +759,6 @@ public:
             }
         }
         return expression();
-    }
-
-    static expression parse(const char* expr)
-    {
-        return parse_part(expr);
     }
 };
 
@@ -720,25 +848,25 @@ TEST_CASE("basic strings can be parsed into expressions", "[parser]")
 
 TEST_CASE("numeric constants parse correctly", "[parser]")
 {
-    REQUIRE(parser::parse ("12").get_i32() == 12);
-    REQUIRE(parser::parse ("13").get_i32() == 13);
-    REQUIRE(parser::parse ("+12").get_i32() == 12);
-    REQUIRE(parser::parse ("-12").get_i32() ==-12);
-    REQUIRE(parser::parse ("13.5").get_f64() == 13.5);
-    REQUIRE(parser::parse ("+13.5").get_f64() == 13.5);
-    REQUIRE(parser::parse ("-13.5").get_f64() ==-13.5);
-    REQUIRE(parser::parse ("+13.5e2").get_f64() == 13.5e2);
-    REQUIRE(parser::parse ("-13.5e2").get_f64() ==-13.5e2);
-    REQUIRE(parser::parse ("+13e2").get_f64() == 13e2);
-    REQUIRE(parser::parse ("-13e2").get_f64() ==-13e2);
-    REQUIRE(parser::parse ("-.5").get_f64() == -.5);
-    REQUIRE(parser::parse ("+.5").get_f64() == +.5);
-    REQUIRE(parser::parse (".5").get_f64() == +.5);
-    REQUIRE_THROWS(parser::parse ("-"));
-    REQUIRE_THROWS(parser::parse ("1e2e2"));
-    REQUIRE_THROWS(parser::parse ("1.2.2"));
-    REQUIRE_THROWS(parser::parse ("1e2.2"));
-    REQUIRE_THROWS(parser::parse ("13a"));
+    REQUIRE(parser::parse("12").get_i32() == 12);
+    REQUIRE(parser::parse("13").get_i32() == 13);
+    REQUIRE(parser::parse("+12").get_i32() == 12);
+    REQUIRE(parser::parse("-12").get_i32() ==-12);
+    REQUIRE(parser::parse("13.5").get_f64() == 13.5);
+    REQUIRE(parser::parse("+13.5").get_f64() == 13.5);
+    REQUIRE(parser::parse("-13.5").get_f64() ==-13.5);
+    REQUIRE(parser::parse("+13.5e2").get_f64() == 13.5e2);
+    REQUIRE(parser::parse("-13.5e2").get_f64() ==-13.5e2);
+    REQUIRE(parser::parse("+13e2").get_f64() == 13e2);
+    REQUIRE(parser::parse("-13e2").get_f64() ==-13e2);
+    REQUIRE(parser::parse("-.5").get_f64() == -.5);
+    REQUIRE(parser::parse("+.5").get_f64() == +.5);
+    REQUIRE(parser::parse(".5").get_f64() == +.5);
+    REQUIRE_THROWS(parser::parse("-"));
+    REQUIRE_THROWS(parser::parse("1e2e2"));
+    REQUIRE_THROWS(parser::parse("1.2.2"));
+    REQUIRE_THROWS(parser::parse("1e2.2"));
+    REQUIRE_THROWS(parser::parse("13a"));
 }
 
 
@@ -775,7 +903,7 @@ TEST_CASE("kernel can be constructed", "[kernel]")
 
 
 
-TEST_CASE("kernel computes downstream nodes correctly", "[kernel]")
+TEST_CASE("kernel computes upstream/downstream nodes correctly", "[kernel]")
 {
     kernel k;
 
@@ -795,6 +923,23 @@ TEST_CASE("kernel computes downstream nodes correctly", "[kernel]")
 
     k.insert("a", {expression::symbol("b"), expression::symbol("d")});
     REQUIRE(k.upstream("a") == kernel::set_t{"b", "c", "d"});
+    REQUIRE(k.cyclic("d", expression::symbol("a")));
+    REQUIRE_FALSE(k.cyclic("d", expression::symbol("e")));
+    REQUIRE_THROWS(k.insert("d", expression::symbol("a")));
 }
 
+
+
+
+TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
+{
+    kernel k;
+
+    k.insert("a", expression::symbol("b"));
+    k.insert("b", expression::symbol("c"));
+
+    REQUIRE(k.dirty("a"));
+    REQUIRE(k.dirty("b"));
+    REQUIRE_FALSE(k.dirty("c"));
+}
 #endif
