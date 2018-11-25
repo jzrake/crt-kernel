@@ -721,7 +721,6 @@ private:
 
     static expression parse_single_quoted_string(const char*& c)
     {
-        assert(*c == '\'');
         const char* start = c++;
 
         while (*c != '\'')
@@ -744,9 +743,9 @@ private:
 
     static expression parse_expression(const char*& c)
     {
-        assert(*c == '(');
-        const char* start = c++;
         auto e = expression();
+
+        ++c;
 
         while (*c != ')')
         {
