@@ -3,7 +3,6 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include "any.hpp"
 
 
 
@@ -11,14 +10,12 @@
 // ============================================================================
 namespace crt
 {
-    class expression;
+    template<typename ObjectType, typename CallAdapter>
     class kernel;
     class parser;
+    class expression;
 
     enum class data_type { none, i32, f64, str, symbol, composite };
-    using list_t = std::vector<linb::any>;
-    using dict_t = std::unordered_map<std::string, linb::any>;
-    using func_t = std::function<linb::any(list_t, dict_t)>;
 };
 
 
@@ -206,8 +203,8 @@ public:
         }
     }
 
-    template<typename Mapping>
-    linb::any resolve(const Mapping& scope) const
+    template<typename ObjectType, typename CallAdapter, typename Mapping>
+    ObjectType resolve(const Mapping& scope) const
     {
         switch (type)
         {
@@ -218,19 +215,18 @@ public:
             case data_type::symbol   : return scope.at(valsym);
             case data_type::composite:
             {
-                list_t args;
-                dict_t kwar;
+                auto args = std::vector<ObjectType>();
+                auto kwar = std::unordered_map<std::string, ObjectType>();
 
                 for (const auto& a : list())
                 {
-                    args.push_back(a.resolve(scope));
+                    args.push_back(a.resolve<ObjectType, CallAdapter>(scope));
                 }
                 for (const auto& p : dict())
                 {
-                    kwar.emplace(p.first, p.second.resolve(scope));
+                    kwar.emplace(p.first, p.second.resolve<ObjectType, CallAdapter>(scope));
                 }
-                auto head = linb::any_cast<func_t>(scope.at(parts.at(0).valsym));
-                return head(args, kwar);
+                return CallAdapter::call(scope, parts.at(0).valsym, args, kwar);
             }
         }
     }
@@ -267,6 +263,7 @@ private:
 
 
 // ============================================================================
+template<typename ObjectType, typename CallAdapter>
 class crt::kernel
 {
 public:
@@ -281,8 +278,9 @@ public:
     // ========================================================================
     struct rule_t
     {
+        //linb::any value;
+        ObjectType value;
         expression expr;
-        linb::any value;
         std::string error;
         set_t incoming;
         set_t outgoing;
@@ -319,7 +317,8 @@ public:
     /** Add a literal rule to the graph. The expression for this rule is empty, and
         its value is always the one given.
      */
-    set_t insert(const std::string& key, const linb::any& value)
+    //set_t insert(const std::string& key, const linb::any& value)
+    set_t insert(const std::string& key, const ObjectType& value)
     {
         reconnect(key, {});
 
@@ -371,7 +370,7 @@ public:
     /** Return the value associated with the rule at the given key. This function
         throws if the key does not exist.
     */
-    const linb::any& at(const std::string& key) const
+    const ObjectType& at(const std::string& key) const
     {
         return rules.at(key).value;
     }
@@ -539,17 +538,17 @@ public:
     /** Return the value of the given rule, catching any exceptions that arise
         and returning them in the error string.
     */
-    linb::any resolve(const std::string& key, std::string& error) const
+    ObjectType resolve(const std::string& key, std::string& error) const
     {
         try {
             error.clear();
             auto rule = rules.at(key);
-            return rule.expr.empty() ? rule.value : rule.expr.resolve(*this);
+            return rule.expr.empty() ? rule.value : rule.expr.template resolve<ObjectType, CallAdapter>(*this);
         }
         catch (std::exception& e)
         {
             error = e.what();
-            return linb::any();
+            return ObjectType();
         }
     }
 
@@ -814,7 +813,32 @@ private:
 // ============================================================================
 #ifdef TEST_KERNEL
 #include "catch.hpp"
+#include "any.hpp"
 using namespace crt;
+
+
+
+
+// ============================================================================
+class AnyCallAdapter
+{
+public:
+    using ObjectType = linb::any;
+    using list_t = std::vector<ObjectType>;
+    using dict_t = std::unordered_map<std::string, ObjectType>;
+    using func_t = std::function<ObjectType(list_t, dict_t)>;
+
+    template<typename Mapping>
+    static ObjectType call(
+        const Mapping& scope,
+        const std::string& key,
+        const list_t& args,
+        const dict_t& kwar)
+    {
+        return linb::any_cast<func_t>(scope.at(key))(args, kwar);
+    }
+};
+using Kernel = kernel<linb::any, AnyCallAdapter>;
 
 
 
@@ -938,7 +962,7 @@ TEST_CASE("keyword expressions parse correctly", "[parser]")
 
 TEST_CASE("kernel can be constructed", "[kernel]")
 {
-    kernel k;
+    Kernel k;
 
     k.insert("a", linb::any(1));
     k.insert("b", expression(1));
@@ -951,24 +975,24 @@ TEST_CASE("kernel can be constructed", "[kernel]")
 
 TEST_CASE("kernel computes upstream/downstream nodes correctly", "[kernel]")
 {
-    kernel k;
+    Kernel k;
 
     k.insert("a", expression::symbol("b"));
     k.insert("b", expression::symbol("c"));
 
-    REQUIRE(expression::symbol("a").symbols() == kernel::set_t{"a"});
-    REQUIRE(k.incoming("a") == kernel::set_t{"b"});
-    REQUIRE(k.upstream("a") == kernel::set_t{"b", "c"});
+    REQUIRE(expression::symbol("a").symbols() == Kernel::set_t{"a"});
+    REQUIRE(k.incoming("a") == Kernel::set_t{"b"});
+    REQUIRE(k.upstream("a") == Kernel::set_t{"b", "c"});
 
-    REQUIRE(k.downstream("c") == kernel::set_t{"a", "b"});
-    REQUIRE(k.downstream("b") == kernel::set_t{"a"});
+    REQUIRE(k.downstream("c") == Kernel::set_t{"a", "b"});
+    REQUIRE(k.downstream("b") == Kernel::set_t{"a"});
 
     k.erase("a");
-    REQUIRE(k.downstream("c") == kernel::set_t{"b"});
-    REQUIRE(k.downstream("b") == kernel::set_t{});
+    REQUIRE(k.downstream("c") == Kernel::set_t{"b"});
+    REQUIRE(k.downstream("b") == Kernel::set_t{});
 
     k.insert("a", {expression::symbol("b"), expression::symbol("d")});
-    REQUIRE(k.upstream("a") == kernel::set_t{"b", "c", "d"});
+    REQUIRE(k.upstream("a") == Kernel::set_t{"b", "c", "d"});
     REQUIRE(k.cyclic("d", expression::symbol("a")));
     REQUIRE_FALSE(k.cyclic("d", expression::symbol("e")));
     REQUIRE_THROWS(k.insert("d", expression::symbol("a")));
@@ -979,7 +1003,7 @@ TEST_CASE("kernel computes upstream/downstream nodes correctly", "[kernel]")
 
 TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
 {
-    kernel k;
+    Kernel k;
 
     SECTION("graph with two rules")
     {
@@ -1011,9 +1035,9 @@ TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
 
         SECTION("can be updated all at once")
         {
-            REQUIRE(k.dirty_rules() == kernel::set_t{"a", "b"});
+            REQUIRE(k.dirty_rules() == Kernel::set_t{"a", "b"});
             k.update_all(k.dirty_rules());
-            REQUIRE(k.dirty_rules() == kernel::set_t{});
+            REQUIRE(k.dirty_rules() == Kernel::set_t{});
         }
     }
 }
