@@ -231,10 +231,10 @@ public:
     {
         switch (type)
         {
-            case data_type::none     : return none();
-            case data_type::i32      : return vali32;
-            case data_type::f64      : return valf64;
-            case data_type::str      : return valstr;
+            case data_type::none     : return CallAdapter::convert(none());
+            case data_type::i32      : return CallAdapter::convert(vali32);
+            case data_type::f64      : return CallAdapter::convert(valf64);
+            case data_type::str      : return CallAdapter::convert(valstr);
             case data_type::symbol   : return scope.at(valsym);
             case data_type::composite:
             {
@@ -341,7 +341,6 @@ public:
     /** Add a literal rule to the graph. The expression for this rule is empty, and
         its value is always the one given.
      */
-    //set_t insert(const std::string& key, const linb::any& value)
     set_t insert(const std::string& key, const ObjectType& value, int flags=0)
     {
         reconnect(key, {});
@@ -360,14 +359,12 @@ public:
     */
     set_t erase(const std::string& key)
     {
-        reconnect(key, {});
-
         if (! contains(key))
         {
             return {};
         }
-
         auto affected = downstream(key);
+        reconnect(key, {});
         rules.erase(key);
         return mark(affected);
     }
@@ -405,6 +402,13 @@ public:
     const int& flags_at(const std::string& key) const
     {
         return rules.at(key).flags;
+    }
+
+    /** Return the error string associated with the rule at the given key.
+     */
+    const std::string& error_at(const std::string& key) const
+    {
+        return rules.at(key).error;
     }
 
     /** Return true if upstream rules have changed since this rule was last
@@ -597,7 +601,7 @@ public:
             rule.value = resolve(key, rule.error);
             rule.dirty = false;
         }
-        return true;
+        return rule.error.empty();
     }
 
     void update_recurse(const std::string& key)
@@ -623,10 +627,14 @@ public:
     {
         if (contains(to))
         {
-            throw std::invalid_argument("cannot relabel rule, key already exists");
+            throw std::invalid_argument("cannot relabel rule to an existing key");
         }
         if (contains(from))
         {
+            if (upstream(from).count(to))
+            {
+                throw std::invalid_argument("cannot relabel rule to an upstream symbol");
+            }
             auto r = rules.at(from);
             rules.erase(from);
             rules[to] = r;
@@ -886,6 +894,12 @@ public:
         const dict_t& kwar)
     {
         return linb::any_cast<func_t>(scope.at(key))(args, kwar);
+    }
+
+    template<typename T>
+    static ObjectType convert(const T& value)
+    {
+        return value;
     }
 };
 using Kernel = kernel<linb::any, AnyCallAdapter>;
