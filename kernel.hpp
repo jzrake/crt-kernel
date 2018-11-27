@@ -127,6 +127,28 @@ public:
         }
     }
 
+    expression relabeled(const std::string& from, const std::string& to) const
+    {
+        switch (type)
+        {
+            case data_type::none     : return *this;
+            case data_type::i32      : return *this;
+            case data_type::f64      : return *this;
+            case data_type::str      : return *this;
+            case data_type::symbol   : return {expression::symbol(valsym == from ? to : valsym)};
+            case data_type::composite:
+            {
+                std::vector<expression> res;
+
+                for (const auto& part : parts)
+                {
+                    res.push_back(part.relabeled(from, to));
+                }
+                return res;
+            }
+        }
+    }
+
     const expression& at(std::size_t index) const
     {
         return parts.at(index);
@@ -279,19 +301,19 @@ public:
     // ========================================================================
     struct rule_t
     {
-        //linb::any value;
         ObjectType value;
         expression expr;
         std::string error;
         set_t incoming;
         set_t outgoing;
         bool dirty;
+        int flags;
     };
 
 
     /** Add a rule to the graph.
      */
-    set_t insert(const std::string& key, const expression& expr)
+    set_t insert(const std::string& key, const expression& expr, int flags=0)
     {
         if (cyclic(key, expr))
         {
@@ -303,6 +325,7 @@ public:
         rule.expr = expr;
         rule.incoming = expr.symbols();
         rule.outgoing = outgoing(key);
+        rule.flags = flags;
 
         for (const auto& i : rule.incoming)
         {
@@ -319,7 +342,7 @@ public:
         its value is always the one given.
      */
     //set_t insert(const std::string& key, const linb::any& value)
-    set_t insert(const std::string& key, const ObjectType& value)
+    set_t insert(const std::string& key, const ObjectType& value, int flags=0)
     {
         reconnect(key, {});
 
@@ -327,6 +350,7 @@ public:
         rule.value = value;
         rule.incoming = {};
         rule.outgoing = outgoing(key);
+        rule.flags = flags;
         rules[key] = rule;
         return mark(downstream(key));
     }
@@ -360,20 +384,27 @@ public:
         return keys;
     }
 
-    /** Return the expression associated with the rule at the given key. The expression is
-        empty if this is a literal rule.
-    */
-    const expression& expr_at(const std::string& key) const
-    {
-        return rules.at(key).expr;
-    }
-
     /** Return the value associated with the rule at the given key. This function
         throws if the key does not exist.
     */
     const ObjectType& at(const std::string& key) const
     {
         return rules.at(key).value;
+    }
+
+    /** Return the expression associated with the rule at the given key. The expression is
+        empty if this is a literal rule.
+     */
+    const expression& expr_at(const std::string& key) const
+    {
+        return rules.at(key).expr;
+    }
+
+    /** Return the user flags associated with the rule at the given key.
+     */
+    const int& flags_at(const std::string& key) const
+    {
+        return rules.at(key).flags;
     }
 
     /** Return true if upstream rules have changed since this rule was last
@@ -418,7 +449,7 @@ public:
         return rules.find(key) != rules.end();
     }
 
-    /** Return the number of rules in the graph.*/
+    /** Return the number of rules in the graph. */
     std::size_t size() const
     {
         return rules.size();
@@ -430,13 +461,13 @@ public:
         return rules.empty();
     }
 
-    /** Return the begin iterator to the container of rules.*/
+    /** Return the begin iterator to the container of rules. */
     auto begin() const
     {
         return rules.begin();
     }
 
-    /** Return the end iterator to the container of rules.*/
+    /** Return the end iterator to the container of rules. */
     auto end() const
     {
         return rules.end();
@@ -585,6 +616,24 @@ public:
         for (const auto& key : keys)
         {
             update_recurse(key);
+        }
+    }
+
+    void relabel(const std::string& from, const std::string& to)
+    {
+        if (contains(to))
+        {
+            throw std::invalid_argument("cannot relabel rule, key already exists");
+        }
+        if (contains(from))
+        {
+            auto r = rules.at(from);
+            rules.erase(from);
+            rules[to] = r;
+        }
+        for (auto& rule : rules)
+        {
+            rule.second.expr = rule.second.expr.relabeled(from, to);
         }
     }
 
