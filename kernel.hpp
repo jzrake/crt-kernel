@@ -354,6 +354,17 @@ public:
         return mark(downstream(key));
     }
 
+    /** Mark the given rule and its downstream rules as dirty.
+     */
+    set_t touch(const std::string& key)
+    {
+        if (! contains(key))
+        {
+            return {};
+        }
+        return mark(downstream(key));
+    }
+
     /** Remove the rule with the given key from the graph, and return the keys of
         affected (downstream) rules.
     */
@@ -719,6 +730,33 @@ private:
         return nullptr;
     }
 
+    static const char* find_closing_parentheses(const char* c)
+    {
+        int level = 0;
+        bool in_str = false;
+
+        do
+        {
+            if (*c == '\0')
+            {
+                throw std::invalid_argument("unterminated expression");
+            }
+            else if (in_str)
+            {
+                if (*c == '\'') in_str = false;
+            }
+            else
+            {
+                if (*c == '\'') in_str = true;
+                else if (*c == ')') --level;
+                else if (*c == '(') ++level;
+            }
+            ++c;
+        } while (level > 0);
+
+        return c;
+    }
+
     static expression parse_number(const char*& c)
     {
         const char* start = c;
@@ -801,16 +839,16 @@ private:
     static expression parse_expression(const char*& c)
     {
         auto e = expression();
-
+        auto end = find_closing_parentheses(c);
         ++c;
 
-        while (*c != ')')
+        while (c != end)
         {
             if (*c == '\0')
             {
                 throw std::runtime_error("syntax error: unterminated expression");
             }
-            else if (isspace(*c))
+            else if (isspace(*c) || *c == ')')
             {
                 ++c;
             }
@@ -858,7 +896,7 @@ private:
             }
             else
             {
-                throw std::runtime_error("syntax error: unkown character");
+                throw std::runtime_error("syntax error: unkown character '" + std::string(c, c + 1) + "'");
             }
         }
         return expression();
@@ -1019,6 +1057,28 @@ TEST_CASE("keyword expressions parse correctly", "[parser]")
     REQUIRE(parser::parse("deer=(0 1 2 3)").at(1).get_i32() == 1);
     REQUIRE(parser::parse("deer=(0 1 2 3)").at(2).get_i32() == 2);
     REQUIRE(parser::parse("deer=(0 1 2 3)").at(3).get_i32() == 3);
+}
+
+
+
+
+TEST_CASE("more complex expressions parse correctly", "[parser]")
+{
+    REQUIRE(parser::parse("(0 1 2 3 (0 1 2 3))").str() == "(0 1 2 3 (0 1 2 3))");
+    REQUIRE(parser::parse("(a 1 2 3 (b 1 2 3 (c 1 2 3)))").str() == "(a 1 2 3 (b 1 2 3 (c 1 2 3)))");
+    REQUIRE(parser::parse("(a a a)").size() == 3);
+    REQUIRE(parser::parse("()").size() == 0);
+    REQUIRE(parser::parse("(a)").size() == 1);
+    REQUIRE(parser::parse("((a))").size() == 1);
+    REQUIRE(parser::parse("((a) a)").size() == 2);
+    REQUIRE(parser::parse("(a (a))").size() == 2);
+    REQUIRE(parser::parse("((a) a a)").size() == 3);
+    REQUIRE(parser::parse("(a (a) a)").size() == 3);
+    REQUIRE(parser::parse("(a a (a))").size() == 3);
+    REQUIRE(parser::parse("((a) a ('a') a (a))").size() == 5);
+    REQUIRE(parser::parse("(a '(a) (a) (a')").size() == 2);
+    REQUIRE(parser::parse("(a 'a) (a) (a)')").size() == 2);
+    REQUIRE_THROWS(parser::parse("(a 'a) (a) (a))"));
 }
 
 
