@@ -32,7 +32,8 @@ public:
     expression(int vali32)                              : type(data_type::i32), vali32(vali32) {}
     expression(double valf64)                           : type(data_type::f64), valf64(valf64) {}
     expression(const std::string& valstr)               : type(data_type::str), valstr(valstr) {}
-    expression(std::initializer_list<expression> parts) : type(data_type::composite), parts(parts)
+    expression(std::initializer_list<expression> parts) : expression(std::vector<expression>(parts)) {}
+    expression(const std::vector<expression>& parts)    : type(data_type::composite), parts(parts)
     {
         if (expression::parts.empty())
         {
@@ -310,7 +311,7 @@ public:
                 rules.at(i).outgoing.insert(key);
             }
         }
-        rules.emplace(key, rule);
+        rules[key] = rule;
         return mark(downstream(key, true));
     }
 
@@ -326,7 +327,7 @@ public:
         rule.value = value;
         rule.incoming = {};
         rule.outgoing = outgoing(key);
-        rules.emplace(key, rule);
+        rules[key] = rule;
         return mark(downstream(key));
     }
 
