@@ -307,13 +307,13 @@ public:
         set_t incoming;
         set_t outgoing;
         bool dirty;
-        int flags;
+        long flags;
     };
 
 
     /** Add a rule to the graph.
      */
-    set_t insert(const std::string& key, const expression& expr, int flags=0)
+    set_t insert(const std::string& key, const expression& expr, long flags=0)
     {
         if (cyclic(key, expr))
         {
@@ -341,7 +341,7 @@ public:
     /** Add a literal rule to the graph. The expression for this rule is empty, and
         its value is always the one given.
      */
-    set_t insert(const std::string& key, const ObjectType& value, int flags=0)
+    set_t insert(const std::string& key, const ObjectType& value, long flags=0)
     {
         reconnect(key, {});
 
@@ -362,7 +362,7 @@ public:
         {
             return {};
         }
-        return mark(downstream(key));
+        return mark(downstream(key, true));
     }
 
     /** Remove the rule with the given key from the graph, and return the keys of
@@ -410,7 +410,7 @@ public:
 
     /** Return the user flags associated with the rule at the given key.
      */
-    const int& flags_at(const std::string& key) const
+    const long& flags_at(const std::string& key) const
     {
         return rules.at(key).flags;
     }
