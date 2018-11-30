@@ -135,7 +135,7 @@ public:
             case data_type::i32      : return *this;
             case data_type::f64      : return *this;
             case data_type::str      : return *this;
-            case data_type::symbol   : return {expression::symbol(valsym == from ? to : valsym)};
+            case data_type::symbol   : return {expression::symbol(valsym == from ? to : valsym).keyed(keyword)};
             case data_type::composite:
             {
                 std::vector<expression> res;
@@ -174,6 +174,16 @@ public:
     auto end() const
     {
         return parts.end();
+    }
+
+    const auto& front() const
+    {
+        return parts.front();
+    }
+
+    const auto& back() const
+    {
+        return parts.back();
     }
 
     double get_i32() const
@@ -226,6 +236,11 @@ public:
         }
     }
 
+    std::string sym() const
+    {
+        return valsym;
+    }
+
     template<typename ObjectType, typename CallAdapter, typename Mapping>
     ObjectType resolve(const Mapping& scope) const
     {
@@ -235,22 +250,8 @@ public:
             case data_type::i32      : return CallAdapter::convert(vali32);
             case data_type::f64      : return CallAdapter::convert(valf64);
             case data_type::str      : return CallAdapter::convert(valstr);
-            case data_type::symbol   : return scope.at(valsym);
-            case data_type::composite:
-            {
-                auto args = std::vector<ObjectType>();
-                auto kwar = std::unordered_map<std::string, ObjectType>();
-
-                for (const auto& a : list())
-                {
-                    args.push_back(a.resolve<ObjectType, CallAdapter>(scope));
-                }
-                for (const auto& p : dict())
-                {
-                    kwar.emplace(p.first, p.second.resolve<ObjectType, CallAdapter>(scope));
-                }
-                return CallAdapter::call(scope, parts.at(0).valsym, args, kwar);
-            }
+            case data_type::symbol   : return CallAdapter::at(scope, valsym);
+            case data_type::composite: return CallAdapter::call(scope, *this);
         }
     }
 
@@ -592,6 +593,11 @@ public:
             auto rule = rules.at(key);
             return rule.expr.empty() ? rule.value : rule.expr.template resolve<ObjectType, CallAdapter>(*this);
         }
+        catch (std::out_of_range& e)
+        {
+            error = "undefined symbol";
+            return ObjectType();
+        }
         catch (std::exception& e)
         {
             error = e.what();
@@ -925,19 +931,40 @@ public:
     using func_t = std::function<ObjectType(list_t, dict_t)>;
 
     template<typename Mapping>
-    static ObjectType call(
-        const Mapping& scope,
-        const std::string& key,
-        const list_t& args,
-        const dict_t& kwar)
+    static ObjectType call(const Mapping& scope, const crt::expression& expr)
     {
-        return linb::any_cast<func_t>(scope.at(key))(args, kwar);
+        auto head = std::string();
+        auto args = std::vector<ObjectType>();
+        auto kwar = std::unordered_map<std::string, ObjectType>();
+
+        for (const auto& part : expr)
+        {
+            if (part == expr.front())
+            {
+                head = part.sym();
+            }
+            else if (part.key().empty())
+            {
+                args.push_back(expr.resolve<ObjectType, AnyCallAdapter>(scope));
+            }
+            else
+            {
+                kwar[expr.key()] = expr.resolve<ObjectType, AnyCallAdapter>(scope);
+            }
+        }
+        return linb::any_cast<func_t>(scope.at(head))(args, kwar);
     }
 
     template<typename T>
     static ObjectType convert(const T& value)
     {
         return value;
+    }
+
+    template<typename Mapping>
+    static const ObjectType& at(const Mapping& scope, const std::string& key)
+    {
+        return scope.at(key);
     }
 };
 using Kernel = kernel<linb::any, AnyCallAdapter>;
