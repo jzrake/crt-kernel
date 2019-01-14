@@ -186,16 +186,16 @@ public:
         return parts.back();
     }
 
-    double get_i32() const
+    int get_i32() const
     {
         switch(type)
         {
-            case data_type::none     : return 0.0;
+            case data_type::none     : return 0;
             case data_type::i32      : return vali32;
             case data_type::f64      : return valf64;
             case data_type::str      : return std::atoi(valstr.data());
-            case data_type::symbol   : return 0.0;
-            case data_type::composite: return 0.0;
+            case data_type::symbol   : return 0;
+            case data_type::composite: return 0;
         }
     }
 
@@ -206,7 +206,7 @@ public:
             case data_type::none     : return 0.0;
             case data_type::i32      : return vali32;
             case data_type::f64      : return valf64;
-            case data_type::str      : return std::atof(valstr.data());
+            case data_type::str      : return std::atod(valstr.data());
             case data_type::symbol   : return 0.0;
             case data_type::composite: return 0.0;
         }
