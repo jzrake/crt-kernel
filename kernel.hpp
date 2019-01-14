@@ -745,7 +745,7 @@ private:
         {
             if (*c == '\0')
             {
-                throw std::invalid_argument("unterminated expression");
+                throw std::runtime_error("unterminated expression");
             }
             else if (in_str)
             {
