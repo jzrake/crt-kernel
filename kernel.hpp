@@ -16,6 +16,12 @@ namespace crt
     class expression;
 
     enum class data_type { none, i32, f64, str, symbol, composite };
+
+    class parser_error : public std::runtime_error
+    {
+    public:
+        using std::runtime_error::runtime_error;
+    };
 };
 
 
@@ -193,7 +199,7 @@ public:
             case data_type::none     : return 0;
             case data_type::i32      : return vali32;
             case data_type::f64      : return valf64;
-            case data_type::str      : return std::atoi(valstr.data());
+            case data_type::str      : return std::stoi(valstr);
             case data_type::symbol   : return 0;
             case data_type::composite: return 0;
         }
@@ -206,7 +212,7 @@ public:
             case data_type::none     : return 0.0;
             case data_type::i32      : return vali32;
             case data_type::f64      : return valf64;
-            case data_type::str      : return std::atod(valstr.data());
+            case data_type::str      : return std::stod(valstr);
             case data_type::symbol   : return 0.0;
             case data_type::composite: return 0.0;
         }
@@ -379,6 +385,13 @@ public:
         reconnect(key, {});
         rules.erase(key);
         return mark(affected);
+    }
+
+    /** Remove all rules from the kernel.
+     */
+    void clear()
+    {
+        rules.clear();
     }
 
     /** Mark the rules at the given keys as being dirty. Return the same set of
@@ -745,7 +758,7 @@ private:
         {
             if (*c == '\0')
             {
-                throw std::runtime_error("unterminated expression");
+                throw parser_error("unterminated expression");
             }
             else if (in_str)
             {
@@ -780,7 +793,7 @@ private:
             {
                 if (isexp)
                 {
-                    throw std::runtime_error("syntax error: bad numeric literal");   
+                    throw parser_error("syntax error: bad numeric literal");
                 }
                 isexp = true;
             }
@@ -788,7 +801,7 @@ private:
             {
                 if (isdec || isexp)
                 {
-                    throw std::runtime_error("syntax error: bad numeric literal");   
+                    throw parser_error("syntax error: bad numeric literal");
                 }
                 isdec = true;
             }
@@ -797,7 +810,7 @@ private:
 
         if (! (isspace(*c) || *c == '\0' || *c == ')'))
         {
-            throw std::runtime_error("syntax error: bad numeric literal");
+            throw parser_error("syntax error: bad numeric literal");
         }
         else if (isdec || isexp)
         {
@@ -828,7 +841,7 @@ private:
         {
             if (*c == '\0')
             {
-                throw std::runtime_error("syntax error: unterminated string");
+                throw parser_error("syntax error: unterminated string");
             }
             ++c;
         }
@@ -837,7 +850,7 @@ private:
 
         if (! (isspace(*c) || *c == '\0' || *c == ')'))
         {
-            throw std::runtime_error("syntax error: non-whitespace character following single-quoted string");
+            throw parser_error("syntax error: non-whitespace character following single-quoted string");
         }
         return expression(std::string(start + 1, c - 1));
     }
@@ -852,7 +865,7 @@ private:
         {
             if (*c == '\0')
             {
-                throw std::runtime_error("syntax error: unterminated expression");
+                throw parser_error("syntax error: unterminated expression");
             }
             else if (isspace(*c) || *c == ')')
             {
@@ -902,7 +915,7 @@ private:
             }
             else
             {
-                throw std::runtime_error("syntax error: unkown character '" + std::string(c, c + 1) + "'");
+                throw parser_error("syntax error: unkown character '" + std::string(c, c + 1) + "'");
             }
         }
         return expression();
