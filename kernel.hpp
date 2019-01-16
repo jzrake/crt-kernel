@@ -218,6 +218,19 @@ public:
         }
     }
 
+    std::string repr() const
+    {
+        switch(type)
+        {
+            case data_type::none     : return "()";
+            case data_type::i32      : return std::to_string(vali32);
+            case data_type::f64      : return std::to_string(valf64);
+            case data_type::str      : return valstr;
+            case data_type::symbol   : return valsym;
+            case data_type::composite: return str();
+        }
+    }
+
     std::string str() const
     {
         auto pre = keyword.empty() ? "" : keyword + "=";
