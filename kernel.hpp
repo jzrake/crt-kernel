@@ -345,6 +345,7 @@ public:
         return mark(downstream(key, true));
     }
 
+
     /** Add a literal rule to the graph. The expression for this rule is empty, and
         its value is always the one given.
      */
@@ -353,13 +354,25 @@ public:
         reconnect(key, {});
 
         auto rule = rule_t();
-        rule.value = value;
         rule.incoming = {};
         rule.outgoing = outgoing(key);
+        rule.value = value;
         rule.flags = flags;
         rules[key] = rule;
         return mark(downstream(key));
     }
+
+
+    /**
+     * Set the error string for the rule at the given key. You might do this
+     * if an expression with this name failed to parse, or if the expression
+     * resolved successfully, but failed some validation.
+     */
+    void set_error(const std::string& key, const std::string& error)
+    {
+        rules.at(key).error = error;
+    }
+
 
     /** Mark the given rule and its downstream rules as dirty.
      */
