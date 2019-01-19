@@ -291,6 +291,42 @@ public:
         return ! operator==(other);
     }
 
+    /**
+     * Mutate this expression so that (1) it is composite if it wasn't before,
+     * and (2) any of its parts with the given key are reset to value. If no
+     * parts have that key, then a new part is appended.
+     */
+    void set(const char* key, const expression& value)
+    {
+        bool exists = false;
+        ensure_composite();
+
+        for (auto& part : parts)
+        {
+            if (part.keyword == key)
+            {
+                part = value.keyed (key);
+                exists = true;
+            }
+        }
+        if (! exists)
+        {
+            parts.push_back (value.keyed (key));
+        }
+    }
+
+    /**
+     * Mutate this expression if necessary so that it is composite. If it was
+     * previously not composite, then it will become {*this};
+     */
+    void ensure_composite()
+    {
+        if (type != data_type::composite)
+        {
+            *this = {*this};
+        }
+    }
+
 private:
     data_type               type   = data_type::none;
     int                     vali32 = 0;
@@ -713,6 +749,13 @@ public:
             error = e.what();
         }
         return ObjectType();
+    }
+
+    ObjectType resolve(const std::string& key) const
+    {
+        std::string error;
+        CallAdapter adapter;
+        return resolve(key, error, adapter);
     }
 
     /**
