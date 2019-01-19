@@ -512,6 +512,42 @@ public:
     }
 
     /**
+     * Return all the rules that are dirty, and whose flags do not match
+     * any bits in the `excluding` value.
+     */
+    set_t dirty_rules_excluding(long excluding) const
+    {
+        set_t res;
+
+        for (const auto& rule : rules)
+        {
+            if (rule.second.dirty && (rule.second.flags & excluding) == 0)
+            {
+                res.insert(rule.first);
+            }
+        }
+        return res;
+    }
+
+    /**
+     * Return all the rules that are dirty, and whose flags match bits in
+     * the `only` value.
+     */
+    set_t dirty_rules_only(long only) const
+    {
+        set_t res;
+
+        for (const auto& rule : rules)
+        {
+            if (rule.second.dirty && (rule.second.flags & only) != 0)
+            {
+                res.insert(rule.first);
+            }
+        }
+        return res;
+    }
+
+    /**
      * Return true if the graph contains a rule with the given key.
      */
     bool contains(const std::string& key) const
@@ -654,9 +690,7 @@ public:
 
     /**
      * Evaluate the given rule, catching any exceptions that arise and
-     * returning them in the error string. If the CallAdapter instance is
-     * nullptr, then use the expression::resolve method that assumes static
-     * methods.
+     * returning them in the error string.
      */
     ObjectType resolve(const std::string& key, std::string& error, const CallAdapter& adapter) const
     {
@@ -679,6 +713,20 @@ public:
             error = e.what();
         }
         return ObjectType();
+    }
+
+    /**
+     * Set the value and error state of the given rule directly. This would be
+     * useful if you are handling expression evaluations on your own, say on a
+     * different thread, and you want to insert the result of that evaluation.
+     * This method sets the rule as not dirty.
+     */
+    void update_directly(const std::string& key, const ObjectType& value, const std::string& error)
+    {
+        auto& rule = rules.at(key);
+        rule.value = value;
+        rule.error = error;
+        rule.dirty = false;
     }
 
     bool update(const std::string& key, const CallAdapter& adapter)
@@ -717,7 +765,7 @@ public:
     void update_recurse(const std::string& key)
     {
         CallAdapter adapter;
-        update_recurse(adapter);
+        update_recurse(adapter, adapter);
     }
 
     void update_all(const set_t& keys, const CallAdapter& adapter)
@@ -755,6 +803,24 @@ public:
             rule.second.expr = rule.second.expr.relabeled(from, to);
         }
     }
+
+    /**
+     * Make a copy of this kernel containing only the rules upstream of the
+     * given key. This is useful if you want to do some evaluations on a
+     * different thread. The result of asynchronous evaluations can be set
+     * with the update_directly method.
+     */
+    // kernel subset_upstream_of(std::string& key)
+    // {
+    //     kernel other;
+
+    //     for (const auto& k : upstream(key))
+    //     {
+    //         other.rules[k] = rules[k];
+    //     }
+    //     return other;
+    // }
+
 
 private:
     // ========================================================================
