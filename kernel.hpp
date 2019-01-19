@@ -261,16 +261,16 @@ public:
     }
 
     template<typename ObjectType, typename CallAdapter, typename Mapping>
-    ObjectType resolve(const Mapping& scope) const
+    ObjectType resolve(const Mapping& scope, const CallAdapter& adapter) const
     {
         switch (type)
         {
-            case data_type::none     : return CallAdapter::convert(none());
-            case data_type::i32      : return CallAdapter::convert(vali32);
-            case data_type::f64      : return CallAdapter::convert(valf64);
-            case data_type::str      : return CallAdapter::convert(valstr);
-            case data_type::symbol   : return CallAdapter::at(scope, valsym);
-            case data_type::composite: return CallAdapter::call(scope, *this);
+            case data_type::none     : return adapter.convert(none());
+            case data_type::i32      : return adapter.convert(vali32);
+            case data_type::f64      : return adapter.convert(valf64);
+            case data_type::str      : return adapter.convert(valstr);
+            case data_type::symbol   : return adapter.at(scope, valsym);
+            case data_type::composite: return adapter.call(scope, *this);
         }
     }
 
@@ -331,7 +331,8 @@ public:
     };
 
 
-    /** Add a rule to the graph.
+    /**
+     * Add a rule to the graph.
      */
     set_t insert(const std::string& key, const expression& expr, long flags=0)
     {
@@ -359,8 +360,9 @@ public:
     }
 
 
-    /** Add a literal rule to the graph. The expression for this rule is empty, and
-        its value is always the one given.
+    /**
+     * Add a literal rule to the graph. The expression for this rule is empty,
+     * and its value is always the one given.
      */
     set_t insert(const std::string& key, const ObjectType& value, long flags=0)
     {
@@ -387,7 +389,8 @@ public:
     }
 
 
-    /** Mark the given rule and its downstream rules as dirty.
+    /**
+     * Mark the given rule and its downstream rules as dirty.
      */
     set_t touch(const std::string& key)
     {
@@ -398,9 +401,10 @@ public:
         return mark(downstream(key, true));
     }
 
-    /** Remove the rule with the given key from the graph, and return the keys of
-        affected (downstream) rules.
-    */
+    /**
+     * Remove the rule with the given key from the graph, and return the keys
+     * of affected (downstream) rules.
+     */
     set_t erase(const std::string& key)
     {
         if (! contains(key))
@@ -413,15 +417,17 @@ public:
         return mark(affected);
     }
 
-    /** Remove all rules from the kernel.
+    /**
+     * Remove all rules from the kernel.
      */
     void clear()
     {
         rules.clear();
     }
 
-    /** Mark the rules at the given keys as being dirty. Return the same set of
-        keys.
+    /**
+     * Mark the rules at the given keys as being dirty. Return the same set of
+     * keys.
     */
     set_t mark(const set_t& keys)
     {
@@ -432,45 +438,50 @@ public:
         return keys;
     }
 
-    /** Return the value associated with the rule at the given key. This function
-        throws if the key does not exist.
-    */
+    /**
+     * Return the value associated with the rule at the given key. This
+     * function hrows if the key does not exist.
+     */
     const ObjectType& at(const std::string& key) const
     {
         return rules.at(key).value;
     }
 
-    /** Return the expression associated with the rule at the given key. The expression is
-        empty if this is a literal rule.
+    /**
+     * Return the expression associated with the rule at the given key. The
+     * expression is empty if this is a literal rule.
      */
     const expression& expr_at(const std::string& key) const
     {
         return rules.at(key).expr;
     }
 
-    /** Return the user flags associated with the rule at the given key.
+    /**
+     * Return the user flags associated with the rule at the given key.
      */
     const long& flags_at(const std::string& key) const
     {
         return rules.at(key).flags;
     }
 
-    /** Return the error string associated with the rule at the given key.
-     */
+    /** Return the error string associated with the rule at the given key. */
     const std::string& error_at(const std::string& key) const
     {
         return rules.at(key).error;
     }
 
-    /** Return true if upstream rules have changed since this rule was last
-        resolved. Rules that are not in the graph are always up-to-date.
-    */
+    /**
+      * Return true if upstream rules have changed since this rule was last
+      * resolved. Rules that are not in the graph are always up-to-date.
+      */
     bool dirty(const std::string& key) const
     {
         return contains(key) ? rules.at(key).dirty : false;
     }
 
-    /** Return true if none of the given rules are dirty. */
+    /**
+     * Return true if none of the given rules are dirty.
+     */
     bool current(const set_t& keys) const
     {
         for (const auto& k : keys)
@@ -483,7 +494,9 @@ public:
         return true;
     }
 
-    /** Return all the rules that are dirty. */
+    /**
+     * Return all the rules that are dirty.
+     */
     set_t dirty_rules() const
     {
         set_t res;
@@ -498,38 +511,49 @@ public:
         return res;
     }
 
-    /** Return true if the graph contains a rule with the given key. */
+    /**
+     * Return true if the graph contains a rule with the given key.
+     */
     bool contains(const std::string& key) const
     {
         return rules.find(key) != rules.end();
     }
 
-    /** Return the number of rules in the graph. */
+    /**
+     * Return the number of rules in the graph.
+     */
     std::size_t size() const
     {
         return rules.size();
     }
 
-    /** Return true if the graph is empty.*/
+    /**
+     * Return true if the graph is empty.
+     */
     bool empty() const
     {
         return rules.empty();
     }
 
-    /** Return the begin iterator to the container of rules. */
+    /**
+     * Return the begin iterator to the container of rules.
+     */
     auto begin() const
     {
         return rules.begin();
     }
 
-    /** Return the end iterator to the container of rules. */
+    /**
+     * Return the end iterator to the container of rules.
+     */
     auto end() const
     {
         return rules.end();
     }
 
-    /** Return the incoming edges for the given rule. An empty set is returned if
-        the key does not exist in the graph.
+    /**
+     * Return the incoming edges for the given rule. An empty set is returned
+     * if the key does not exist in the graph.
     */
     set_t incoming(const std::string& key) const
     {
@@ -540,7 +564,9 @@ public:
         return {};
     }
 
-    /** Return all rules that this rule depends on. */
+    /**
+     * Return all rules that this rule depends on.
+     */
     set_t upstream(const std::string& key) const
     {
         auto res = incoming(key);
@@ -555,10 +581,12 @@ public:
         return res;
     }
 
-    /** Return the outgoing edges for the given rule. Even if that rule does not exist
-        in the graph, it may have outgoing edges if other rules in the graph name it
-        as a dependency. If the rule does exist in the graph, this is a fast operation
-        because outgoing edges are cached and kept up-to-date.
+    /**
+      * Return the outgoing edges for the given rule. Even if that rule does
+      * not exist in the graph, it may have outgoing edges if other rules in
+      * the graph name it as a dependency. If the rule does exist in the
+      * graph, this is a fast operation because outgoing edges are cached and
+      * kept up-to-date.
     */
     set_t outgoing(const std::string& key) const
     {
@@ -583,9 +611,10 @@ public:
         return out;
     }
 
-    /** Return all rules that depend on the given rule. Note that adding and
-        removing rules from the kernel influences the downstream keys.
-    */
+    /**
+     * Return all rules that depend on the given rule. Note that adding and
+     * removing rules from the kernel influences the downstream keys.
+     */
     set_t downstream(const std::string& key, bool inclusive=false) const
     {
         auto res = outgoing(key);
@@ -604,9 +633,10 @@ public:
         return res;
     }
 
-    /** Return true if addition of the given rule would create a dependency
-        cycle in the graph. This checks for whether any of the rules downstream
-        of the given key are symbols in expr.
+    /**
+     * Return true if addition of the given rule would create a dependency
+     * cycle in the graph. This checks for whether any of the rules downstream
+     * of the given key are symbols in expr.
      */
     bool cyclic(const std::string& key, const expression& expr)
     {
@@ -622,29 +652,36 @@ public:
         return false;
     }
 
-    /** Return the value of the given rule, catching any exceptions that arise
-        and returning them in the error string.
-    */
-    ObjectType resolve(const std::string& key, std::string& error) const
+    /**
+     * Evaluate the given rule, catching any exceptions that arise and
+     * returning them in the error string. If the CallAdapter instance is
+     * nullptr, then use the expression::resolve method that assumes static
+     * methods.
+     */
+    ObjectType resolve(const std::string& key, std::string& error, const CallAdapter& adapter) const
     {
         try {
             error.clear();
-            auto rule = rules.at(key);
-            return rule.expr.empty() ? rule.value : rule.expr.template resolve<ObjectType, CallAdapter>(*this);
+            const auto rule = rules.at(key);
+
+            if (rule.expr.empty())
+            {
+                return rule.value;
+            }
+            return rule.expr.template resolve<ObjectType>(*this, adapter);
         }
-        catch (std::out_of_range& e)
+        catch (const std::out_of_range& e)
         {
-            error = "undefined symbol";
-            return ObjectType();
+            error = "unresolved symbol: " + key;
         }
-        catch (std::exception& e)
+        catch (const std::exception& e)
         {
             error = e.what();
-            return ObjectType();
         }
+        return ObjectType();
     }
 
-    bool update(const std::string& key)
+    bool update(const std::string& key, const CallAdapter& adapter)
     {
         auto& rule = rules.at(key);
 
@@ -654,29 +691,47 @@ public:
         }
         if (rule.dirty)
         {
-            rule.value = resolve(key, rule.error);
+            rule.value = resolve(key, rule.error, adapter);
             rule.dirty = false;
         }
         return rule.error.empty();
     }
 
-    void update_recurse(const std::string& key)
+    bool update(const std::string& key)
     {
-        if (update(key))
+        CallAdapter adapter;
+        return update(key, adapter);
+    }
+
+    void update_recurse(const std::string& key, const CallAdapter& adapter)
+    {
+        if (update(key, adapter))
         {
             for (const auto& k : outgoing(key))
             {
-                update_recurse(k);
+                update_recurse(k, adapter);
             }
+        }
+    }
+
+    void update_recurse(const std::string& key)
+    {
+        CallAdapter adapter;
+        update_recurse(adapter);
+    }
+
+    void update_all(const set_t& keys, const CallAdapter& adapter)
+    {
+        for (const auto& key : keys)
+        {
+            update_recurse(key, adapter);
         }
     }
 
     void update_all(const set_t& keys)
     {
-        for (const auto& key : keys)
-        {
-            update_recurse(key);
-        }
+        CallAdapter adapter;
+        update_all(keys, adapter);
     }
 
     void relabel(const std::string& from, const std::string& to)
@@ -970,7 +1025,7 @@ public:
     using func_t = std::function<ObjectType(list_t, dict_t)>;
 
     template<typename Mapping>
-    static ObjectType call(const Mapping& scope, const crt::expression& expr)
+    ObjectType call(const Mapping& scope, const crt::expression& expr) const
     {
         auto head = std::string();
         auto args = std::vector<ObjectType>();
@@ -984,24 +1039,24 @@ public:
             }
             else if (part.key().empty())
             {
-                args.push_back(expr.resolve<ObjectType, AnyCallAdapter>(scope));
+                args.push_back(expr.resolve<ObjectType>(scope, *this));
             }
             else
             {
-                kwar[expr.key()] = expr.resolve<ObjectType, AnyCallAdapter>(scope);
+                kwar[expr.key()] = expr.resolve<ObjectType>(scope, *this);
             }
         }
         return linb::any_cast<func_t>(scope.at(head))(args, kwar);
     }
 
     template<typename T>
-    static ObjectType convert(const T& value)
+    ObjectType convert(const T& value) const
     {
         return value;
     }
 
     template<typename Mapping>
-    static const ObjectType& at(const Mapping& scope, const std::string& key)
+    const ObjectType& at(const Mapping& scope, const std::string& key) const
     {
         return scope.at(key);
     }
