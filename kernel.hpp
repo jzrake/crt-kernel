@@ -426,6 +426,24 @@ public:
 
 
     /**
+     * Do |= on the flags at the given key.
+     */
+    void enable(const std::string& key, long flags)
+    {
+        rules.at(key).flags |= flags;
+    }
+
+
+    /**
+     * Do &= ~ on the flags at the given key.
+     */
+    void disable(const std::string& key, long flags)
+    {
+        rules.at(key).flags &= ~flags;
+    }
+
+
+    /**
      * Mark the given rule and its downstream rules as dirty.
      */
     set_t touch(const std::string& key)
@@ -436,6 +454,7 @@ public:
         }
         return mark(downstream(key, true));
     }
+
 
     /**
      * Remove the rule with the given key from the graph, and return the keys
@@ -453,6 +472,7 @@ public:
         return mark(affected);
     }
 
+
     /**
      * Remove all rules from the kernel.
      */
@@ -460,6 +480,7 @@ public:
     {
         rules.clear();
     }
+
 
     /**
      * Mark the rules at the given keys as being dirty. Return the same set of
@@ -474,6 +495,7 @@ public:
         return keys;
     }
 
+
     /**
      * Return the value associated with the rule at the given key. This
      * function hrows if the key does not exist.
@@ -482,6 +504,7 @@ public:
     {
         return rules.at(key).value;
     }
+
 
     /**
      * Return the expression associated with the rule at the given key. The
@@ -492,6 +515,7 @@ public:
         return rules.at(key).expr;
     }
 
+
     /**
      * Return the user flags associated with the rule at the given key.
      */
@@ -500,11 +524,13 @@ public:
         return rules.at(key).flags;
     }
 
+
     /** Return the error string associated with the rule at the given key. */
     const std::string& error_at(const std::string& key) const
     {
         return rules.at(key).error;
     }
+
 
     /**
       * Return true if upstream rules have changed since this rule was last
@@ -513,6 +539,7 @@ public:
     bool dirty(const std::string& key) const
     {
         return contains(key) ? rules.at(key).dirty : false;
+
     }
 
     /**
@@ -530,6 +557,7 @@ public:
         return true;
     }
 
+
     /**
      * Return all the rules that are dirty.
      */
@@ -546,6 +574,7 @@ public:
         }
         return res;
     }
+
 
     /**
      * Return all the rules that are dirty, and whose flags do not match
@@ -565,6 +594,7 @@ public:
         return res;
     }
 
+
     /**
      * Return all the rules that are dirty, and whose flags match bits in
      * the `only` value.
@@ -583,6 +613,7 @@ public:
         return res;
     }
 
+
     /**
      * Return true if the graph contains a rule with the given key.
      */
@@ -590,6 +621,7 @@ public:
     {
         return rules.find(key) != rules.end();
     }
+
 
     /**
      * Return the number of rules in the graph.
@@ -599,6 +631,7 @@ public:
         return rules.size();
     }
 
+
     /**
      * Return true if the graph is empty.
      */
@@ -606,6 +639,7 @@ public:
     {
         return rules.empty();
     }
+
 
     /**
      * Return the begin iterator to the container of rules.
@@ -615,6 +649,7 @@ public:
         return rules.begin();
     }
 
+
     /**
      * Return the end iterator to the container of rules.
      */
@@ -622,6 +657,7 @@ public:
     {
         return rules.end();
     }
+
 
     /**
      * Return the incoming edges for the given rule. An empty set is returned
@@ -635,6 +671,7 @@ public:
         }
         return {};
     }
+
 
     /**
      * Return all rules that this rule depends on.
@@ -652,6 +689,7 @@ public:
         }
         return res;
     }
+
 
     /**
       * Return the outgoing edges for the given rule. Even if that rule does
@@ -683,6 +721,7 @@ public:
         return out;
     }
 
+
     /**
      * Return all rules that depend on the given rule. Note that adding and
      * removing rules from the kernel influences the downstream keys.
@@ -705,6 +744,7 @@ public:
         return res;
     }
 
+
     /**
      * Return true if addition of the given rule would create a dependency
      * cycle in the graph. This checks for whether any of the rules downstream
@@ -723,6 +763,7 @@ public:
         }
         return false;
     }
+
 
     /**
      * Evaluate the given rule, catching any exceptions that arise and
@@ -757,6 +798,7 @@ public:
         CallAdapter adapter;
         return resolve(key, error, adapter);
     }
+
 
     /**
      * Set the value and error state of the given rule directly. This would be
@@ -846,6 +888,7 @@ public:
             rule.second.expr = rule.second.expr.relabeled(from, to);
         }
     }
+
 
     /**
      * Make a copy of this kernel containing only the rules upstream of the
