@@ -559,6 +559,15 @@ public:
 
 
     /**
+     * Convenience method for current(incoming(key)).
+     */
+    bool eligible(const std::string& key) const
+    {
+        return current(incoming(key));
+    }
+
+
+    /**
      * Return all the rules that are dirty.
      */
     set_t dirty_rules() const
@@ -799,6 +808,10 @@ public:
         return resolve(key, error, adapter);
     }
 
+    void unmark(const std::string& key)
+    {
+        rules.at(key).dirty = false;
+    }
 
     /**
      * Set the value and error state of the given rule directly. This would be
