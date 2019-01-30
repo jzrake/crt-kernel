@@ -8,7 +8,7 @@ static std::string what_wrong_type(const char* expected, const crt::expression& 
 {
     return "expected "
     + std::string(expected)
-    +" at index + "
+    +" at index "
     + std::to_string(index)
     + ", got "
     + arg.type_name();

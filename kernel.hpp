@@ -16,8 +16,15 @@ namespace crt
     class kernel;
     class parser;
     class expression;
+    class call_adapter;
     enum class data_type { none, i32, f64, str, symbol, data, function, table };
 
+
+    //=========================================================================
+    static inline expression parse(const std::string&);
+
+
+    //=========================================================================
     class parser_error : public std::runtime_error
     {
     public:
@@ -85,6 +92,22 @@ public:
             type = data_type::none;
         }
     }
+    expression(const std::unordered_map<std::string, expression>& items)
+    {
+        if (items.empty())
+        {
+            type = data_type::none;
+        }
+        else
+        {
+            type = data_type::table;
+
+            for (const auto& item : items)
+            {
+                parts.push_back(item.second.keyed(item.first));
+            }
+        }
+    }
 
     template<typename IteratorType>
     expression(IteratorType first, IteratorType second) : expression(std::vector<expression>(first, second)) {}
@@ -145,6 +168,18 @@ public:
         return {};
     }
 
+    expression attr(const std::string& key) const
+    {
+        for (const auto& part : parts)
+        {
+            if (part.keyword == key)
+            {
+                return part;
+            }
+        }
+        return {};    
+    }
+
     std::vector<expression> list() const
     {
         std::vector<expression> list_parts;
@@ -200,6 +235,58 @@ public:
         }
     }
 
+
+    /**
+     * Returns this expression with its outermost two layers transposed:
+     * 
+     *          ((a b c) (1 2 3)) -> ((a 1) (b 2) (b 3)).
+     *
+     * If this expression is not a table, then an empty expression is
+     * returned. If any of its parts is not a table, that value is broadcast
+     * to a list, duplicating its scalar value. The size of the result has the
+     * size of the smallest part that is a table.
+     */
+    expression zip() const
+    {
+        std::size_t len = 0;
+
+        for (const auto& part : parts)
+        {
+            if (part.has_type(data_type::table))
+            {
+                if (len == 0 || len > part.size())
+                {
+                    len = part.size();
+                }
+            }
+        }
+
+        std::vector<expression> result(len);
+
+        for (std::size_t n = 0; n < len; ++n)
+        {
+            result[n].type = data_type::table;
+
+            for (const auto& part : parts)
+            {
+                if (part.has_type(data_type::table))
+                {
+                    result[n].parts.push_back(part.parts[n]);
+                }
+                else
+                {
+                    result[n].parts.push_back(part);
+                }
+            }
+        }
+        return result;
+    }
+
+
+    /**
+     * Returns this expression with all of its symbols having the name `from`
+     * renamed to `to`.
+     */
     expression relabeled(const std::string& from, const std::string& to) const
     {
         switch (type)
@@ -263,7 +350,12 @@ public:
 
     expression first() const
     {
-        return parts.size() > 0 ? parts.front() : none();
+        return parts.size() > 0 ? parts[0] : none();
+    }
+
+    expression second() const
+    {
+        return parts.size() > 1 ? parts[1] : none();
     }
 
     expression rest() const
@@ -297,26 +389,37 @@ public:
             case data_type::symbol   : return 0.0;
             case data_type::data     : return 0.0;
             case data_type::function : return 0.0;
-            case data_type::table: return 0.0;
+            case data_type::table    : return 0.0;
         }
     }
 
-    std::string repr() const
+    std::string get_str() const
     {
-        switch(type)
-        {
-            case data_type::none     : return "()";
-            case data_type::i32      : return std::to_string(vali32);
-            case data_type::f64      : return std::to_string(valf64);
-            case data_type::str      : return valstr;
-            case data_type::symbol   : return valsym;
-            case data_type::data     : return "<data>";
-            case data_type::function : return "<function>";
-            case data_type::table: return str();
-        }
+        return valstr;
     }
 
-    std::string str() const
+    std::string get_sym() const
+    {
+        return valsym;
+    }
+
+    func_t get_func() const
+    {
+        return valfunc;
+    }
+
+    data_t get_data() const
+    {
+        return valdata;
+    }
+
+    operator int()         const { return get_i32(); }
+    operator double()      const { return get_f64(); }
+    operator std::string() const { return get_str(); }
+    operator func_t()      const { return get_func(); }
+    operator data_t()      const { return get_data(); }
+
+    std::string unparse() const
     {
         auto pre = keyword.empty() ? "" : keyword + "=";
 
@@ -335,26 +438,11 @@ public:
 
                 for (const auto& part : parts)
                 {
-                    res += " " + part.str();
+                    res += " " + part.unparse();
                 }
                 return pre + "(" + res.substr(1) + ")";
             }
         }
-    }
-
-    std::string sym() const
-    {
-        return valsym;
-    }
-
-    func_t get_func() const
-    {
-        return valfunc;
-    }
-
-    data_t get_data() const
-    {
-        return valdata;
     }
 
     expression call(const expression& args)
@@ -917,7 +1005,7 @@ public:
             {
                 return rule.value;
             }
-            return rule.expr.template resolve<expression>(*this, adapter);
+            return rule.expr.resolve(*this, adapter);
         }
         catch (const std::out_of_range& e)
         {
@@ -1286,6 +1374,38 @@ private:
 
 
 //=============================================================================
+crt::expression crt::parse(const std::string& source)
+{
+    return parser::parse(source.data());
+}
+
+
+
+
+//=============================================================================
+class crt::call_adapter
+{
+public:
+
+    template<typename Mapping>
+    crt::expression call(const Mapping& scope, const crt::expression& expr) const
+    {
+        auto head = expr.first().resolve(scope, *this);
+        auto args = std::vector<expression>();
+
+        for (const auto& part : expr.rest())
+        {
+            args.push_back(part.resolve(scope, *this).keyed(part.key()));
+        }
+        return head.call(args);
+    }
+};
+
+
+
+
+
+//=============================================================================
 #ifdef TEST_KERNEL
 #include "catch.hpp"
 #include "any.hpp"
@@ -1295,69 +1415,6 @@ using namespace crt;
 
 
 //=============================================================================
-// class AnyCallAdapter
-// {
-// public:
-//     using expression = linb::any;
-//     using list_t = std::vector<expression>;
-//     using dict_t = std::unordered_map<std::string, expression>;
-//     using func_t = std::function<expression(list_t, dict_t)>;
-
-//     template<typename Mapping>
-//     expression call(const Mapping& scope, const crt::expression& expr) const
-//     {
-//         auto head = std::string();
-//         auto args = std::vector<expression>();
-//         auto kwar = std::unordered_map<std::string, expression>();
-
-//         for (const auto& part : expr)
-//         {
-//             if (part == expr.front())
-//             {
-//                 head = part.sym();
-//             }
-//             else if (part.key().empty())
-//             {
-//                 args.push_back(expr.resolve<expression>(scope, *this));
-//             }
-//             else
-//             {
-//                 kwar[expr.key()] = expr.resolve<expression>(scope, *this);
-//             }
-//         }
-//         return linb::any_cast<func_t>(scope.at(head))(args, kwar);
-//     }
-
-//     template<typename T>
-//     expression convert(const T& value) const
-//     {
-//         return value;
-//     }
-
-//     template<typename Mapping>
-//     const expression& at(const Mapping& scope, const std::string& key) const
-//     {
-//         return scope.at(key);
-//     }
-// };
-
-
-
-
-class BasicCallAdapter
-{
-public:
-
-    template<typename Mapping>
-    const crt::expression& call(const Mapping& scope, const crt::expression& expr)
-    {
-        return scope.at(expr.first()).call(expr.rest());
-    }
-};
-
-
-
-
 TEST_CASE("expression passes basic sanity tests", "[expression]")
 {
     REQUIRE(expression{1, 2} == expression{1, 2});
@@ -1401,10 +1458,10 @@ TEST_CASE("nested expression can be constructed by hand", "[expression]")
 
 TEST_CASE("expression can be converted to string", "[expression]")
 {
-    REQUIRE(expression().str() == "()");
-    REQUIRE(expression({}).str() == "()");
-    REQUIRE(expression({1, 2, 3}).str() == "(1 2 3)");
-    REQUIRE(expression({1, 2, 3}).str() == "(1 2 3)");
+    REQUIRE(expression().unparse() == "()");
+    REQUIRE(expression({}).unparse() == "()");
+    REQUIRE(expression({1, 2, 3}).unparse() == "(1 2 3)");
+    REQUIRE(expression({1, 2, 3}).unparse() == "(1 2 3)");
 }
 
 
@@ -1477,8 +1534,8 @@ TEST_CASE("keyword expressions parse correctly", "[parser]")
 
 TEST_CASE("more complex expressions parse correctly", "[parser]")
 {
-    REQUIRE(parser::parse("(0 1 2 3 (0 1 2 3))").str() == "(0 1 2 3 (0 1 2 3))");
-    REQUIRE(parser::parse("(a 1 2 3 (b 1 2 3 (c 1 2 3)))").str() == "(a 1 2 3 (b 1 2 3 (c 1 2 3)))");
+    REQUIRE(parser::parse("(0 1 2 3 (0 1 2 3))").unparse() == "(0 1 2 3 (0 1 2 3))");
+    REQUIRE(parser::parse("(a 1 2 3 (b 1 2 3 (c 1 2 3)))").unparse() == "(a 1 2 3 (b 1 2 3 (c 1 2 3)))");
     REQUIRE(parser::parse("(a a a)").size() == 3);
     REQUIRE(parser::parse("()").size() == 0);
     REQUIRE(parser::parse("(a)").size() == 1);
@@ -1501,7 +1558,7 @@ TEST_CASE("kernel can be constructed", "[kernel]")
 {
     kernel k;
 
-    // k.insert("a", linb::any(1));
+    k.insert("a", std::string("thing"));
     k.insert("b", expression(1));
 
     REQUIRE(k.size() == 2);
@@ -1556,16 +1613,16 @@ TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
     {
         k.insert("a", expression::symbol("b"));
         k.insert("b", expression::symbol("c"));
-        // k.insert("c", linb::any(12));
+        k.insert_literal("c", expression(12));
 
         SECTION("can be updated incrementally")
         {
             REQUIRE(k.dirty("a"));
             REQUIRE(k.dirty("b"));
             REQUIRE_FALSE(k.dirty("c"));
-            //REQUIRE_FALSE(k.update("a"));
-            //REQUIRE(k.update("b"));
-            //REQUIRE(k.update("a"));
+            REQUIRE_FALSE(k.update("a", crt::call_adapter()));
+            REQUIRE(k.update("b", crt::call_adapter()));
+            REQUIRE(k.update("a", crt::call_adapter()));
             REQUIRE_FALSE(k.dirty("a"));
             REQUIRE_FALSE(k.dirty("b"));
         }
@@ -1573,7 +1630,7 @@ TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
         SECTION("can be updated all at once")
         {
             REQUIRE(k.dirty_rules() == kernel::set_t{"a", "b"});
-            //k.update_all(k.dirty_rules());
+            k.update_all(k.dirty_rules(), crt::call_adapter());
             REQUIRE(k.dirty_rules() == kernel::set_t{});
         }
     }
