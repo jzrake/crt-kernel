@@ -7,23 +7,16 @@
 
 
 
-// ============================================================================
+//=============================================================================
 namespace crt
 {
-    template<typename ObjectType, typename CallAdapter>
+
+
+    //=========================================================================
     class kernel;
     class parser;
     class expression;
-
-    class user_data
-    {
-    public:
-        virtual std::string type_name() const = 0;
-        virtual std::string dump() const = 0;
-        virtual bool restore(const std::string&) = 0;
-    };
-
-    enum class data_type { none, i32, f64, str, symbol, data, function, composite };
+    enum class data_type { none, i32, f64, str, symbol, data, function, table };
 
     class parser_error : public std::runtime_error
     {
@@ -31,6 +24,39 @@ namespace crt
         using std::runtime_error::runtime_error;
     };
 
+
+    //=========================================================================
+    class user_data
+    {
+    public:
+        virtual const char* type_name() const = 0;
+        virtual std::string dump() const = 0;
+        virtual bool restore(const std::string&) = 0;
+    };
+
+
+    //=========================================================================
+    template<typename> class type_info {};
+
+
+    //=========================================================================
+    template<typename T>
+    class capsule : public user_data
+    {
+    public:
+        capsule() {}
+        capsule(const T& value) : value(value) {}
+        virtual const char* type_name() const { return type_info<T>::name(); }
+        virtual std::string dump() const { return std::string(); }
+        virtual bool restore(const std::string&) { return false; }
+        const T& get() const { return value; }
+        T& get() { return value; }
+    private:
+        T value;
+    };
+
+
+    //=========================================================================
     using func_t = std::function<expression(expression)>;
     using data_t = std::shared_ptr<user_data>;
 };
@@ -38,7 +64,7 @@ namespace crt
 
 
 
-// ============================================================================
+//=============================================================================
 class crt::expression
 {
 public:
@@ -52,13 +78,16 @@ public:
     expression(data_t valdata)                          : type(data_type::function), valdata(valdata) {}
     expression(func_t valfunc)                          : type(data_type::function), valfunc(valfunc) {}
     expression(std::initializer_list<expression> parts) : expression(std::vector<expression>(parts)) {}
-    expression(const std::vector<expression>& parts)    : type(data_type::composite), parts(parts)
+    expression(const std::vector<expression>& parts)    : type(data_type::table), parts(parts)
     {
         if (expression::parts.empty())
         {
             type = data_type::none;
         }
     }
+
+    template<typename IteratorType>
+    expression(IteratorType first, IteratorType second) : expression(std::vector<expression>(first, second)) {}
 
     static expression symbol(const std::string& v)
     {
@@ -68,10 +97,10 @@ public:
         return e;
     }
 
-    static expression composite(const std::vector<expression>& v)
+    static expression table(const std::vector<expression>& v)
     {
         auto e = expression();
-        e.type = v.empty() ? data_type::none : data_type::composite;
+        e.type = v.empty() ? data_type::none : data_type::table;
         e.parts = v;
         return e;
     }
@@ -88,9 +117,32 @@ public:
         return type;
     }
 
+    bool has_type(data_type other_type) const
+    {
+        return type == other_type;
+    }
+
     std::string key() const
     {
         return keyword;
+    }
+
+    expression item(std::size_t index) const
+    {
+        std::size_t n = 0;
+
+        for (const auto& part : parts)
+        {
+            if (part.keyword.empty())
+            {
+                if (n == index)
+                {
+                    return part;
+                }
+                ++n;
+            }
+        }
+        return {};
     }
 
     std::vector<expression> list() const
@@ -132,7 +184,7 @@ public:
             case data_type::symbol   : return {valsym};
             case data_type::data     : return {};
             case data_type::function : return {};
-            case data_type::composite:
+            case data_type::table:
             {
                 std::unordered_set<std::string> res;
 
@@ -159,7 +211,7 @@ public:
             case data_type::symbol   : return {expression::symbol(valsym == from ? to : valsym).keyed(keyword)};
             case data_type::data     : return *this;
             case data_type::function : return *this;
-            case data_type::composite:
+            case data_type::table:
             {
                 std::vector<expression> res;
 
@@ -186,7 +238,7 @@ public:
     {
         return
         (type == data_type::none) ||
-        (type == data_type::composite && parts.empty());
+        (type == data_type::table && parts.empty());
     }
 
     auto begin() const
@@ -209,6 +261,16 @@ public:
         return parts.back();
     }
 
+    expression first() const
+    {
+        return parts.size() > 0 ? parts.front() : none();
+    }
+
+    expression rest() const
+    {
+        return parts.size() > 1 ? expression(begin() + 1, end()) : none();
+    }
+
     int get_i32() const
     {
         switch(type)
@@ -220,7 +282,7 @@ public:
             case data_type::symbol   : return 0;
             case data_type::data     : return 0;
             case data_type::function : return 0;
-            case data_type::composite: return 0;
+            case data_type::table: return 0;
         }
     }
 
@@ -235,7 +297,7 @@ public:
             case data_type::symbol   : return 0.0;
             case data_type::data     : return 0.0;
             case data_type::function : return 0.0;
-            case data_type::composite: return 0.0;
+            case data_type::table: return 0.0;
         }
     }
 
@@ -250,7 +312,7 @@ public:
             case data_type::symbol   : return valsym;
             case data_type::data     : return "<data>";
             case data_type::function : return "<function>";
-            case data_type::composite: return str();
+            case data_type::table: return str();
         }
     }
 
@@ -267,7 +329,7 @@ public:
             case data_type::symbol   : return pre + valsym;
             case data_type::data     : return pre + "<data>";
             case data_type::function : return pre + "<function>";
-            case data_type::composite:
+            case data_type::table:
             {
                 std::string res;
 
@@ -295,19 +357,43 @@ public:
         return valdata;
     }
 
-    template<typename ObjectType, typename CallAdapter, typename Mapping>
-    ObjectType resolve(const Mapping& scope, const CallAdapter& adapter) const
+    expression call(const expression& args)
+    {
+        if (! has_type(crt::data_type::function) || ! valfunc)
+        {
+            throw std::runtime_error("expression is not a function");
+        }
+        return valfunc(args);
+    }
+
+    const char* type_name() const
     {
         switch (type)
         {
-            case data_type::none     : return adapter.convert(none());
-            case data_type::i32      : return adapter.convert(vali32);
-            case data_type::f64      : return adapter.convert(valf64);
-            case data_type::str      : return adapter.convert(valstr);
-            case data_type::symbol   : return adapter.at(scope, valsym);
-            case data_type::data     : return adapter.at(scope, valsym);
-            case data_type::function : return adapter.at(scope, valsym);
-            case data_type::composite: return adapter.call(scope, *this);
+            case data_type::none:      return "none";
+            case data_type::i32:       return "i32";
+            case data_type::f64:       return "f64";
+            case data_type::str:       return "str";
+            case data_type::symbol:    return "symbol";
+            case data_type::data:      return valdata->type_name();
+            case data_type::function:  return "function";
+            case data_type::table:     return "table";
+        }
+    };
+
+    template<typename Mapping, typename CallAdapter>
+    expression resolve(const Mapping& scope, const CallAdapter& adapter) const
+    {
+        switch (type)
+        {
+            case data_type::none     : return none();
+            case data_type::i32      : return vali32;
+            case data_type::f64      : return valf64;
+            case data_type::str      : return valstr;
+            case data_type::data     : return valdata;
+            case data_type::function : return valfunc;
+            case data_type::symbol   : return scope.at(valsym);
+            case data_type::table    : return adapter.call(scope, *this);
         }
     }
 
@@ -332,7 +418,7 @@ public:
     }
 
     /**
-     * Mutate this expression so that (1) it is composite if it wasn't before,
+     * Mutate this expression so that (1) it is table if it wasn't before,
      * and (2) any of its parts with the given key are reset to value. If no
      * parts have that key, then a new part is appended.
      */
@@ -356,16 +442,17 @@ public:
     }
 
     /**
-     * Mutate this expression if necessary so that it is composite. If it was
-     * previously not composite, then it will become {*this};
+     * Mutate this expression if necessary so that it is table. If it was
+     * previously not table, then it will become {*this};
      */
     void ensure_composite()
     {
-        if (type != data_type::composite)
+        if (type != data_type::table)
         {
             *this = {*this};
         }
     }
+
 
 private:
     data_type               type   = data_type::none;
@@ -383,24 +470,23 @@ private:
 
 
 
-// ============================================================================
-template<typename ObjectType, typename CallAdapter>
+//=============================================================================
 class crt::kernel
 {
 public:
 
 
-    // ========================================================================
+    //=========================================================================
     struct rule_t;
     using map_t = std::unordered_map<std::string, rule_t>;
     using set_t = std::unordered_set<std::string>;
 
 
-    // ========================================================================
+    //=========================================================================
     struct rule_t
     {
-        ObjectType value;
         expression expr;
+        expression value;
         std::string error;
         set_t incoming;
         set_t outgoing;
@@ -442,7 +528,7 @@ public:
      * Add a literal rule to the graph. The expression for this rule is empty,
      * and its value is always the one given.
      */
-    set_t insert(const std::string& key, const ObjectType& value, long flags=0)
+    set_t insert_literal(const std::string& key, const expression& value, long flags=0)
     {
         reconnect(key, {});
 
@@ -542,7 +628,7 @@ public:
      * Return the value associated with the rule at the given key. This
      * function hrows if the key does not exist.
      */
-    const ObjectType& at(const std::string& key) const
+    const expression& at(const std::string& key) const
     {
         return rules.at(key).value;
     }
@@ -820,7 +906,8 @@ public:
      * Evaluate the given rule, catching any exceptions that arise and
      * returning them in the error string.
      */
-    ObjectType resolve(const std::string& key, std::string& error, const CallAdapter& adapter) const
+    template<typename CallAdapter>
+    expression resolve(const std::string& key, std::string& error, const CallAdapter& adapter) const
     {
         try {
             error.clear();
@@ -830,7 +917,7 @@ public:
             {
                 return rule.value;
             }
-            return rule.expr.template resolve<ObjectType>(*this, adapter);
+            return rule.expr.template resolve<expression>(*this, adapter);
         }
         catch (const std::out_of_range& e)
         {
@@ -840,15 +927,15 @@ public:
         {
             error = e.what();
         }
-        return ObjectType();
+        return expression();
     }
 
-    ObjectType resolve(const std::string& key) const
-    {
-        std::string error;
-        CallAdapter adapter;
-        return resolve(key, error, adapter);
-    }
+    // expression resolve(const std::string& key) const
+    // {
+    //     std::string error;
+    //     CallAdapter adapter;
+    //     return resolve(key, error, adapter);
+    // }
 
     void unmark(const std::string& key)
     {
@@ -861,7 +948,7 @@ public:
      * different thread, and you want to insert the result of that evaluation.
      * This method sets the rule as not dirty.
      */
-    void update_directly(const std::string& key, const ObjectType& value, const std::string& error)
+    void update_directly(const std::string& key, const expression& value, const std::string& error)
     {
         auto& rule = rules.at(key);
         rule.value = value;
@@ -869,6 +956,7 @@ public:
         rule.dirty = false;
     }
 
+    template<typename CallAdapter>
     bool update(const std::string& key, const CallAdapter& adapter)
     {
         auto& rule = rules.at(key);
@@ -885,12 +973,13 @@ public:
         return rule.error.empty();
     }
 
-    bool update(const std::string& key)
-    {
-        CallAdapter adapter;
-        return update(key, adapter);
-    }
+    // bool update(const std::string& key)
+    // {
+    //     CallAdapter adapter;
+    //     return update(key, adapter);
+    // }
 
+    template<typename CallAdapter>
     void update_recurse(const std::string& key, const CallAdapter& adapter)
     {
         if (update(key, adapter))
@@ -902,12 +991,13 @@ public:
         }
     }
 
-    void update_recurse(const std::string& key)
-    {
-        CallAdapter adapter;
-        update_recurse(adapter, adapter);
-    }
+    // void update_recurse(const std::string& key)
+    // {
+    //     CallAdapter adapter;
+    //     update_recurse(adapter, adapter);
+    // }
 
+    template<typename CallAdapter>
     void update_all(const set_t& keys, const CallAdapter& adapter)
     {
         for (const auto& key : keys)
@@ -916,11 +1006,11 @@ public:
         }
     }
 
-    void update_all(const set_t& keys)
-    {
-        CallAdapter adapter;
-        update_all(keys, adapter);
-    }
+    // void update_all(const set_t& keys)
+    // {
+    //     CallAdapter adapter;
+    //     update_all(keys, adapter);
+    // }
 
     void relabel(const std::string& from, const std::string& to)
     {
@@ -945,26 +1035,8 @@ public:
     }
 
 
-    /**
-     * Make a copy of this kernel containing only the rules upstream of the
-     * given key. This is useful if you want to do some evaluations on a
-     * different thread. The result of asynchronous evaluations can be set
-     * with the update_directly method.
-     */
-    // kernel subset_upstream_of(std::string& key)
-    // {
-    //     kernel other;
-
-    //     for (const auto& k : upstream(key))
-    //     {
-    //         other.rules[k] = rules[k];
-    //     }
-    //     return other;
-    // }
-
-
 private:
-    // ========================================================================
+    //=========================================================================
     void reconnect(const std::string& key, const expression& expr)
     {
         for (const auto& k : incoming(key))
@@ -988,7 +1060,7 @@ private:
 
 
 
-// ============================================================================
+//=============================================================================
 class crt::parser
 {
 
@@ -1166,7 +1238,7 @@ private:
         }
         if (! e.parts.empty())
         {
-            e.type = data_type::composite;
+            e.type = data_type::table;
         }
         return e;
     }
@@ -1213,7 +1285,7 @@ private:
 
 
 
-// ============================================================================
+//=============================================================================
 #ifdef TEST_KERNEL
 #include "catch.hpp"
 #include "any.hpp"
@@ -1222,53 +1294,66 @@ using namespace crt;
 
 
 
-// ============================================================================
-class AnyCallAdapter
+//=============================================================================
+// class AnyCallAdapter
+// {
+// public:
+//     using expression = linb::any;
+//     using list_t = std::vector<expression>;
+//     using dict_t = std::unordered_map<std::string, expression>;
+//     using func_t = std::function<expression(list_t, dict_t)>;
+
+//     template<typename Mapping>
+//     expression call(const Mapping& scope, const crt::expression& expr) const
+//     {
+//         auto head = std::string();
+//         auto args = std::vector<expression>();
+//         auto kwar = std::unordered_map<std::string, expression>();
+
+//         for (const auto& part : expr)
+//         {
+//             if (part == expr.front())
+//             {
+//                 head = part.sym();
+//             }
+//             else if (part.key().empty())
+//             {
+//                 args.push_back(expr.resolve<expression>(scope, *this));
+//             }
+//             else
+//             {
+//                 kwar[expr.key()] = expr.resolve<expression>(scope, *this);
+//             }
+//         }
+//         return linb::any_cast<func_t>(scope.at(head))(args, kwar);
+//     }
+
+//     template<typename T>
+//     expression convert(const T& value) const
+//     {
+//         return value;
+//     }
+
+//     template<typename Mapping>
+//     const expression& at(const Mapping& scope, const std::string& key) const
+//     {
+//         return scope.at(key);
+//     }
+// };
+
+
+
+
+class BasicCallAdapter
 {
 public:
-    using ObjectType = linb::any;
-    using list_t = std::vector<ObjectType>;
-    using dict_t = std::unordered_map<std::string, ObjectType>;
-    using func_t = std::function<ObjectType(list_t, dict_t)>;
 
     template<typename Mapping>
-    ObjectType call(const Mapping& scope, const crt::expression& expr) const
+    const crt::expression& call(const Mapping& scope, const crt::expression& expr)
     {
-        auto head = std::string();
-        auto args = std::vector<ObjectType>();
-        auto kwar = std::unordered_map<std::string, ObjectType>();
-
-        for (const auto& part : expr)
-        {
-            if (part == expr.front())
-            {
-                head = part.sym();
-            }
-            else if (part.key().empty())
-            {
-                args.push_back(expr.resolve<ObjectType>(scope, *this));
-            }
-            else
-            {
-                kwar[expr.key()] = expr.resolve<ObjectType>(scope, *this);
-            }
-        }
-        return linb::any_cast<func_t>(scope.at(head))(args, kwar);
-    }
-
-    template<typename T>
-    ObjectType convert(const T& value) const
-    {
-        return value;
-    }
-
-    template<typename Mapping>
-    const ObjectType& at(const Mapping& scope, const std::string& key) const
-    {
-        return scope.at(key);
+        return scope.at(expr.first()).call(expr.rest());
     }
 };
-using Kernel = kernel<linb::any, AnyCallAdapter>;
 
 
 
@@ -1279,13 +1364,13 @@ TEST_CASE("expression passes basic sanity tests", "[expression]")
     REQUIRE(expression{1, 2} != expression());
     REQUIRE(expression().empty());
     REQUIRE(expression().dtype() == data_type::none);
-    REQUIRE(expression::composite({}).empty());
-    REQUIRE(expression::composite({}).dtype() == data_type::none);
+    REQUIRE(expression::table({}).empty());
+    REQUIRE(expression::table({}).dtype() == data_type::none);
     REQUIRE(expression() == expression::none());
     REQUIRE(expression() == expression({}));
     REQUIRE(expression() == expression{});
-    REQUIRE(expression() == expression::composite({}));
-    REQUIRE(expression() != expression::composite({1, 2, 3}));
+    REQUIRE(expression() == expression::table({}));
+    REQUIRE(expression() != expression::table({1, 2, 3}));
 }
 
 
@@ -1300,13 +1385,13 @@ TEST_CASE("nested expression can be constructed by hand", "[expression]")
         expression::symbol("a"),
         {1, expression::symbol("b"), expression::symbol("b")}};
 
-    REQUIRE(e.dtype() == data_type::composite);
+    REQUIRE(e.dtype() == data_type::table);
     REQUIRE(e.size() == 5);
     REQUIRE(e.list()[0].dtype() == data_type::i32);
     REQUIRE(e.list()[1].dtype() == data_type::f64);
     REQUIRE(e.list()[2].dtype() == data_type::str);
     REQUIRE(e.list()[3].dtype() == data_type::symbol);
-    REQUIRE(e.list()[4].dtype() == data_type::composite);
+    REQUIRE(e.list()[4].dtype() == data_type::table);
     REQUIRE(e.symbols().size() == 2);
     REQUIRE(e == e);
 }
@@ -1330,7 +1415,7 @@ TEST_CASE("basic strings can be parsed into expressions", "[parser]")
     REQUIRE(parser::parse("a").dtype() == data_type::symbol);
     REQUIRE(parser::parse("1").dtype() == data_type::i32);
     REQUIRE(parser::parse("1.0").dtype() == data_type::f64);
-    REQUIRE(parser::parse("(a b c)").dtype() == data_type::composite);
+    REQUIRE(parser::parse("(a b c)").dtype() == data_type::table);
     REQUIRE(parser::parse("(a b c)").size() == 3);
     REQUIRE(parser::parse("(a b b c 1 2 'ant')").symbols().size() == 3);
     REQUIRE(parser::parse("(1 2 3)") == expression{1, 2, 3});
@@ -1378,7 +1463,7 @@ TEST_CASE("keyword expressions parse correctly", "[parser]")
     REQUIRE(parser::parse("a=1").key() == "a");
     REQUIRE(parser::parse("cow='moo'").dtype() == data_type::str);
     REQUIRE(parser::parse("cow='moo'").key() == "cow");
-    REQUIRE(parser::parse("deer=(0 1 2 3)").dtype() == data_type::composite);
+    REQUIRE(parser::parse("deer=(0 1 2 3)").dtype() == data_type::table);
     REQUIRE(parser::parse("deer=(0 1 2 3)").key() == "deer");
     REQUIRE(parser::parse("deer=(0 1 2 3)").size() == 4);
     REQUIRE(parser::parse("deer=(0 1 2 3)").at(0).get_i32() == 0);
@@ -1414,9 +1499,9 @@ TEST_CASE("more complex expressions parse correctly", "[parser]")
 
 TEST_CASE("kernel can be constructed", "[kernel]")
 {
-    Kernel k;
+    kernel k;
 
-    k.insert("a", linb::any(1));
+    // k.insert("a", linb::any(1));
     k.insert("b", expression(1));
 
     REQUIRE(k.size() == 2);
@@ -1427,24 +1512,24 @@ TEST_CASE("kernel can be constructed", "[kernel]")
 
 TEST_CASE("kernel computes upstream/downstream nodes correctly", "[kernel]")
 {
-    Kernel k;
+    kernel k;
 
     k.insert("a", expression::symbol("b"));
     k.insert("b", expression::symbol("c"));
 
-    REQUIRE(expression::symbol("a").symbols() == Kernel::set_t{"a"});
-    REQUIRE(k.incoming("a") == Kernel::set_t{"b"});
-    REQUIRE(k.upstream("a") == Kernel::set_t{"b", "c"});
+    REQUIRE(expression::symbol("a").symbols() == kernel::set_t{"a"});
+    REQUIRE(k.incoming("a") == kernel::set_t{"b"});
+    REQUIRE(k.upstream("a") == kernel::set_t{"b", "c"});
 
-    REQUIRE(k.downstream("c") == Kernel::set_t{"a", "b"});
-    REQUIRE(k.downstream("b") == Kernel::set_t{"a"});
+    REQUIRE(k.downstream("c") == kernel::set_t{"a", "b"});
+    REQUIRE(k.downstream("b") == kernel::set_t{"a"});
 
     k.erase("a");
-    REQUIRE(k.downstream("c") == Kernel::set_t{"b"});
-    REQUIRE(k.downstream("b") == Kernel::set_t{});
+    REQUIRE(k.downstream("c") == kernel::set_t{"b"});
+    REQUIRE(k.downstream("b") == kernel::set_t{});
 
     k.insert("a", {expression::symbol("b"), expression::symbol("d")});
-    REQUIRE(k.upstream("a") == Kernel::set_t{"b", "c", "d"});
+    REQUIRE(k.upstream("a") == kernel::set_t{"b", "c", "d"});
     REQUIRE(k.cyclic("d", expression::symbol("a")));
     REQUIRE_FALSE(k.cyclic("d", expression::symbol("e")));
     REQUIRE_THROWS(k.insert("d", expression::symbol("a")));
@@ -1455,7 +1540,7 @@ TEST_CASE("kernel computes upstream/downstream nodes correctly", "[kernel]")
 
 TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
 {
-    Kernel k;
+    kernel k;
 
     SECTION("graph with two rules")
     {
@@ -1471,25 +1556,25 @@ TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
     {
         k.insert("a", expression::symbol("b"));
         k.insert("b", expression::symbol("c"));
-        k.insert("c", linb::any(12));
+        // k.insert("c", linb::any(12));
 
         SECTION("can be updated incrementally")
         {
             REQUIRE(k.dirty("a"));
             REQUIRE(k.dirty("b"));
             REQUIRE_FALSE(k.dirty("c"));
-            REQUIRE_FALSE(k.update("a"));
-            REQUIRE(k.update("b"));
-            REQUIRE(k.update("a"));
+            //REQUIRE_FALSE(k.update("a"));
+            //REQUIRE(k.update("b"));
+            //REQUIRE(k.update("a"));
             REQUIRE_FALSE(k.dirty("a"));
             REQUIRE_FALSE(k.dirty("b"));
         }
 
         SECTION("can be updated all at once")
         {
-            REQUIRE(k.dirty_rules() == Kernel::set_t{"a", "b"});
-            k.update_all(k.dirty_rules());
-            REQUIRE(k.dirty_rules() == Kernel::set_t{});
+            REQUIRE(k.dirty_rules() == kernel::set_t{"a", "b"});
+            //k.update_all(k.dirty_rules());
+            REQUIRE(k.dirty_rules() == kernel::set_t{});
         }
     }
 }
