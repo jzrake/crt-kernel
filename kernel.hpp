@@ -15,13 +15,24 @@ namespace crt
     class parser;
     class expression;
 
-    enum class data_type { none, i32, f64, str, symbol, composite };
+    class user_data
+    {
+    public:
+        virtual std::string type_name() const = 0;
+        virtual std::string dump() const = 0;
+        virtual bool restore(const std::string&) = 0;
+    };
+
+    enum class data_type { none, i32, f64, str, symbol, data, function, composite };
 
     class parser_error : public std::runtime_error
     {
     public:
         using std::runtime_error::runtime_error;
     };
+
+    using func_t = std::function<expression(expression)>;
+    using data_t = std::shared_ptr<user_data>;
 };
 
 
@@ -38,6 +49,8 @@ public:
     expression(int vali32)                              : type(data_type::i32), vali32(vali32) {}
     expression(double valf64)                           : type(data_type::f64), valf64(valf64) {}
     expression(const std::string& valstr)               : type(data_type::str), valstr(valstr) {}
+    expression(data_t valdata)                          : type(data_type::function), valdata(valdata) {}
+    expression(func_t valfunc)                          : type(data_type::function), valfunc(valfunc) {}
     expression(std::initializer_list<expression> parts) : expression(std::vector<expression>(parts)) {}
     expression(const std::vector<expression>& parts)    : type(data_type::composite), parts(parts)
     {
@@ -117,6 +130,8 @@ public:
             case data_type::f64      : return {};
             case data_type::str      : return {};
             case data_type::symbol   : return {valsym};
+            case data_type::data     : return {};
+            case data_type::function : return {};
             case data_type::composite:
             {
                 std::unordered_set<std::string> res;
@@ -142,6 +157,8 @@ public:
             case data_type::f64      : return *this;
             case data_type::str      : return *this;
             case data_type::symbol   : return {expression::symbol(valsym == from ? to : valsym).keyed(keyword)};
+            case data_type::data     : return *this;
+            case data_type::function : return *this;
             case data_type::composite:
             {
                 std::vector<expression> res;
@@ -201,6 +218,8 @@ public:
             case data_type::f64      : return valf64;
             case data_type::str      : return std::stoi(valstr);
             case data_type::symbol   : return 0;
+            case data_type::data     : return 0;
+            case data_type::function : return 0;
             case data_type::composite: return 0;
         }
     }
@@ -214,6 +233,8 @@ public:
             case data_type::f64      : return valf64;
             case data_type::str      : return std::stod(valstr);
             case data_type::symbol   : return 0.0;
+            case data_type::data     : return 0.0;
+            case data_type::function : return 0.0;
             case data_type::composite: return 0.0;
         }
     }
@@ -227,6 +248,8 @@ public:
             case data_type::f64      : return std::to_string(valf64);
             case data_type::str      : return valstr;
             case data_type::symbol   : return valsym;
+            case data_type::data     : return "<data>";
+            case data_type::function : return "<function>";
             case data_type::composite: return str();
         }
     }
@@ -242,6 +265,8 @@ public:
             case data_type::f64      : return pre + std::to_string(valf64);
             case data_type::str      : return pre + "'" + valstr + "'";
             case data_type::symbol   : return pre + valsym;
+            case data_type::data     : return pre + "<data>";
+            case data_type::function : return pre + "<function>";
             case data_type::composite:
             {
                 std::string res;
@@ -260,6 +285,16 @@ public:
         return valsym;
     }
 
+    func_t get_func() const
+    {
+        return valfunc;
+    }
+
+    data_t get_data() const
+    {
+        return valdata;
+    }
+
     template<typename ObjectType, typename CallAdapter, typename Mapping>
     ObjectType resolve(const Mapping& scope, const CallAdapter& adapter) const
     {
@@ -270,6 +305,8 @@ public:
             case data_type::f64      : return adapter.convert(valf64);
             case data_type::str      : return adapter.convert(valstr);
             case data_type::symbol   : return adapter.at(scope, valsym);
+            case data_type::data     : return adapter.at(scope, valsym);
+            case data_type::function : return adapter.at(scope, valsym);
             case data_type::composite: return adapter.call(scope, *this);
         }
     }
@@ -277,11 +314,14 @@ public:
     bool operator==(const expression& other) const
     {
         return
+        type       != data_type::function && // no equality testing for function types
+        other.type != data_type::function &&
         type    == other.type    &&
         vali32  == other.vali32  &&
         valf64  == other.valf64  &&
         valstr  == other.valstr  &&
         valsym  == other.valsym  &&
+        valdata == other.valdata &&
         keyword == other.keyword &&
         parts   == other.parts;
     }
@@ -333,8 +373,10 @@ private:
     double                  valf64 = 0.0;
     std::string             valstr;
     std::string             valsym;
-    std::string             keyword;
+    crt::data_t             valdata;
+    crt::func_t             valfunc;
     std::vector<expression> parts;
+    std::string             keyword;
     friend class parser;
 };
 
