@@ -43,7 +43,13 @@ namespace crt
 
 
     //=========================================================================
-    template<typename> class type_info {};
+    template<typename T>
+    struct type_info
+    {
+        const char* type_name();
+        static expression to_expr(const T&);
+        static T from_expr(const expression&);
+    };
 
 
     //=========================================================================
@@ -64,6 +70,16 @@ namespace crt
 
 
     //=========================================================================
+    template<typename T>
+    static std::shared_ptr<user_data> make_data(const T&);
+
+
+    //=========================================================================
+    template<typename T>
+    static crt::expression init();
+
+
+    //=========================================================================
     using func_t = std::function<expression(expression)>;
     using data_t = std::shared_ptr<user_data>;
 };
@@ -77,12 +93,18 @@ class crt::expression
 public:
     struct none {};
 
+    template<typename T>
+    static expression from(const T& val) { return type_info<T>::to_expr(val); }
+
+    template<typename T>
+    T to() const { return type_info<T>::from_expr(*this); }
+
     expression()                                        : type(data_type::none) {}
     expression(const none&)                             : type(data_type::none) {}
     expression(int vali32)                              : type(data_type::i32), vali32(vali32) {}
     expression(double valf64)                           : type(data_type::f64), valf64(valf64) {}
     expression(const std::string& valstr)               : type(data_type::str), valstr(valstr) {}
-    expression(data_t valdata)                          : type(data_type::function), valdata(valdata) {}
+    expression(data_t valdata)                          : type(data_type::data), valdata(valdata) {}
     expression(func_t valfunc)                          : type(data_type::function), valfunc(valfunc) {}
     expression(std::initializer_list<expression> parts) : expression(std::vector<expression>(parts)) {}
     expression(const std::vector<expression>& parts)    : type(data_type::table), parts(parts)
@@ -94,7 +116,8 @@ public:
     }
 
     template<typename IteratorType>
-    expression(IteratorType first, IteratorType second) : expression(std::vector<expression>(first, second))
+    expression(IteratorType first, IteratorType second) :
+    expression(std::vector<expression>(first, second))
     {
     }
 
@@ -481,8 +504,17 @@ public:
             case data_type::str      : return valstr;
             case data_type::data     : return valdata;
             case data_type::function : return valfunc;
-            case data_type::symbol   : return scope.at(valsym);
             case data_type::table    : return adapter.call(scope, *this);
+            case data_type::symbol   :
+            {
+                try {
+                    return scope.at(valsym);
+                }
+                catch (const std::out_of_range& e)
+                {
+                    throw std::runtime_error("unresolved symbol: " + valsym);
+                }
+            }
         }
     }
 
@@ -555,6 +587,25 @@ private:
     std::string             keyword;
     friend class parser;
 };
+
+
+
+
+//=========================================================================
+template<typename T>
+static std::shared_ptr<crt::user_data> crt::make_data(const T& v)
+{
+    return std::dynamic_pointer_cast<user_data>(std::make_shared<capsule<T>>(v));
+}
+
+template<typename T>
+crt::expression crt::init()
+{
+    return crt::expression([] (const crt::expression& e)
+    {
+        return crt::make_data(e.to<T>());
+    });
+}
 
 
 
@@ -715,7 +766,7 @@ public:
 
     /**
      * Return the value associated with the rule at the given key. This
-     * function hrows if the key does not exist.
+     * function throws if the key does not exist.
      */
     const expression& at(const std::string& key) const
     {
@@ -1019,13 +1070,6 @@ public:
         return expression();
     }
 
-    // expression resolve(const std::string& key) const
-    // {
-    //     std::string error;
-    //     CallAdapter adapter;
-    //     return resolve(key, error, adapter);
-    // }
-
     void unmark(const std::string& key)
     {
         rules.at(key).dirty = false;
@@ -1062,12 +1106,6 @@ public:
         return rule.error.empty();
     }
 
-    // bool update(const std::string& key)
-    // {
-    //     CallAdapter adapter;
-    //     return update(key, adapter);
-    // }
-
     template<typename CallAdapter>
     void update_recurse(const std::string& key, const CallAdapter& adapter)
     {
@@ -1080,12 +1118,6 @@ public:
         }
     }
 
-    // void update_recurse(const std::string& key)
-    // {
-    //     CallAdapter adapter;
-    //     update_recurse(adapter, adapter);
-    // }
-
     template<typename CallAdapter>
     void update_all(const set_t& keys, const CallAdapter& adapter)
     {
@@ -1094,12 +1126,6 @@ public:
             update_recurse(key, adapter);
         }
     }
-
-    // void update_all(const set_t& keys)
-    // {
-    //     CallAdapter adapter;
-    //     update_all(keys, adapter);
-    // }
 
     void relabel(const std::string& from, const std::string& to)
     {

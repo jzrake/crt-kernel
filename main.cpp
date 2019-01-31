@@ -167,6 +167,48 @@ crt::expression reverse(const crt::expression& e)
     return crt::expression(arg.rbegin(), arg.rend());
 }
 
+crt::expression type(const crt::expression& e)
+{
+    return std::string(e.first().type_name());
+}
+
+
+
+
+//=============================================================================
+struct my_struct
+{
+    int a, b;
+};
+
+
+
+
+//=============================================================================
+template<>
+struct crt::type_info<my_struct>
+{
+    static const char* name()
+    {
+        return "my-struct";
+    }
+    static expression to_expr(const my_struct& val)
+    {
+        return {
+            expression(val.a).keyed("a"),
+            expression(val.b).keyed("b"),
+        };
+    }
+    static my_struct from_expr(const expression& expr)
+    {
+        return {
+            expr.attr("a"),
+            expr.attr("b"),
+        };
+    }
+};
+
+
 
 
 
@@ -192,6 +234,9 @@ int main()
     kern.insert_literal("rest", crt::expression(rest));
     kern.insert_literal("last", crt::expression(last));
     kern.insert_literal("reverse", crt::expression(reverse));
+    kern.insert_literal("type", crt::expression(type));
+    kern.insert_literal("my-struct", crt::init<my_struct>());
+
 
     while (! std::cin.eof())
     {
