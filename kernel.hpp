@@ -1228,12 +1228,19 @@ class crt::parser
 {
 
 public:
+
+
+    //=========================================================================
     static expression parse(const char* expr)
     {
         return parse_part(expr);
     }
 
+
 private:
+
+
+    //=========================================================================
     static bool is_symbol_character(char e)
     {
         return isalnum(e) || e == '_' || e == '-' || e == ':';

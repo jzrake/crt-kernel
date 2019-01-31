@@ -5,6 +5,9 @@
 
 
 //=============================================================================
+namespace builtin
+{
+
 crt::expression table(const crt::expression& e)
 {
     return e;
@@ -180,6 +183,9 @@ crt::expression unparse(const crt::expression& e)
     return e.first().unparse();
 }
 
+}
+
+
 
 
 
@@ -223,28 +229,29 @@ struct crt::type_info<my_struct>
 int main()
 {
     crt::kernel kern;
-    kern.define("apply",     apply);
-    kern.define("attr",      attr);
-    kern.define("concat",    concat);
-    kern.define("dict",      dict);
-    kern.define("eval",      eval);
-    kern.define("first",     first);
-    kern.define("item",      item);
-    kern.define("join",      join);
-    kern.define("last",      last);
-    kern.define("len",       len);
-    kern.define("list",      list);
-    kern.define("map",       map);
+    kern.define("apply",     builtin::apply);
+    kern.define("attr",      builtin::attr);
+    kern.define("concat",    builtin::concat);
+    kern.define("dict",      builtin::dict);
+    kern.define("eval",      builtin::eval);
+    kern.define("first",     builtin::first);
+    kern.define("item",      builtin::item);
+    kern.define("join",      builtin::join);
+    kern.define("last",      builtin::last);
+    kern.define("len",       builtin::len);
+    kern.define("list",      builtin::list);
+    kern.define("map",       builtin::map);
+    kern.define("range",     builtin::range);
+    kern.define("rest",      builtin::rest);
+    kern.define("reverse",   builtin::reverse);
+    kern.define("second",    builtin::second);
+    kern.define("slice",     builtin::slice);
+    kern.define("table",     builtin::table);
+    kern.define("type",      builtin::type);
+    kern.define("unparse",   builtin::unparse);
+    kern.define("zip",       builtin::zip);
     kern.define("my-struct", crt::init<my_struct>());
-    kern.define("range",     range);
-    kern.define("rest",      rest);
-    kern.define("reverse",   reverse);
-    kern.define("second",    second);
-    kern.define("slice",     slice);
-    kern.define("table",     table);
-    kern.define("type",      type);
-    kern.define("unparse",   unparse);
-    kern.define("zip",       zip);
+
 
     while (! std::cin.eof())
     {
