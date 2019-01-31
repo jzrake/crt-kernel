@@ -1,7 +1,5 @@
-#include <cassert>
 #include <iostream>
 #include "kernel.hpp"
-#include "crt.hpp"
 
 
 
@@ -172,6 +170,16 @@ crt::expression type(const crt::expression& e)
     return std::string(e.first().type_name());
 }
 
+crt::expression eval(const crt::expression& e)
+{
+    return crt::parse(e.first());
+}
+
+crt::expression unparse(const crt::expression& e)
+{
+    return e.first().unparse();
+}
+
 
 
 
@@ -211,32 +219,32 @@ struct crt::type_info<my_struct>
 
 
 
-
 //=============================================================================
 int main()
 {
     crt::kernel kern;
-    kern.insert_literal("table", crt::expression(table));
-    kern.insert_literal("list", crt::expression(list));
-    kern.insert_literal("item", crt::expression(item));
-    kern.insert_literal("dict", crt::expression(dict));
-    kern.insert_literal("attr", crt::expression(attr));
-    kern.insert_literal("range", crt::expression(range));
-    kern.insert_literal("slice", crt::expression(slice));
-    kern.insert_literal("len", crt::expression(len));
-    kern.insert_literal("concat", crt::expression(concat));
-    kern.insert_literal("join", crt::expression(join));
-    kern.insert_literal("zip", crt::expression(zip));
-    kern.insert_literal("map", crt::expression(map));
-    kern.insert_literal("apply", crt::expression(apply));
-    kern.insert_literal("first", crt::expression(first));
-    kern.insert_literal("second", crt::expression(second));
-    kern.insert_literal("rest", crt::expression(rest));
-    kern.insert_literal("last", crt::expression(last));
-    kern.insert_literal("reverse", crt::expression(reverse));
-    kern.insert_literal("type", crt::expression(type));
-    kern.insert_literal("my-struct", crt::init<my_struct>());
-
+    kern.define("apply",     apply);
+    kern.define("attr",      attr);
+    kern.define("concat",    concat);
+    kern.define("dict",      dict);
+    kern.define("eval",      eval);
+    kern.define("first",     first);
+    kern.define("item",      item);
+    kern.define("join",      join);
+    kern.define("last",      last);
+    kern.define("len",       len);
+    kern.define("list",      list);
+    kern.define("map",       map);
+    kern.define("my-struct", crt::init<my_struct>());
+    kern.define("range",     range);
+    kern.define("rest",      rest);
+    kern.define("reverse",   reverse);
+    kern.define("second",    second);
+    kern.define("slice",     slice);
+    kern.define("table",     table);
+    kern.define("type",      type);
+    kern.define("unparse",   unparse);
+    kern.define("zip",       zip);
 
     while (! std::cin.eof())
     {

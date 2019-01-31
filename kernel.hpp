@@ -21,6 +21,24 @@ namespace crt
 
 
     //=========================================================================
+    struct user_data
+    {
+        virtual ~user_data() {}
+        virtual const char* type_name() const = 0;
+        virtual expression to_expr() const = 0;
+    };
+
+
+    //=========================================================================
+    using func_t = std::function<expression(expression)>;
+    using data_t = std::shared_ptr<user_data>;
+
+
+    //=========================================================================
+    template<typename T> struct capsule;
+    template<typename T> struct type_info;
+    template<typename T> static std::shared_ptr<user_data> make_data(const T&);
+    template<typename T> static crt::func_t init();
     static inline expression parse(const std::string&);
 
 
@@ -30,58 +48,6 @@ namespace crt
     public:
         using std::runtime_error::runtime_error;
     };
-
-
-    //=========================================================================
-    class user_data
-    {
-    public:
-        virtual const char* type_name() const = 0;
-        virtual std::string dump() const = 0;
-        virtual bool restore(const std::string&) = 0;
-    };
-
-
-    //=========================================================================
-    template<typename T>
-    struct type_info
-    {
-        const char* type_name();
-        static expression to_expr(const T&);
-        static T from_expr(const expression&);
-    };
-
-
-    //=========================================================================
-    template<typename T>
-    class capsule : public user_data
-    {
-    public:
-        capsule() {}
-        capsule(const T& value) : value(value) {}
-        virtual const char* type_name() const { return type_info<T>::name(); }
-        virtual std::string dump() const { return std::string(); }
-        virtual bool restore(const std::string&) { return false; }
-        const T& get() const { return value; }
-        T& get() { return value; }
-    private:
-        T value;
-    };
-
-
-    //=========================================================================
-    template<typename T>
-    static std::shared_ptr<user_data> make_data(const T&);
-
-
-    //=========================================================================
-    template<typename T>
-    static crt::expression init();
-
-
-    //=========================================================================
-    using func_t = std::function<expression(expression)>;
-    using data_t = std::shared_ptr<user_data>;
 };
 
 
@@ -93,11 +59,36 @@ class crt::expression
 public:
     struct none {};
 
+
+    /**
+     * Return an expression converted from a custom data type. You must
+     * specialize the type_info struct, and implement the to_expr method for
+     * this to compile.
+     */
     template<typename T>
     static expression from(const T& val) { return type_info<T>::to_expr(val); }
 
+
+    /**
+     * Return this expression converted to a custom data type. You must
+     * specialize the type_info struct, and implement the from_expr method for
+     * this to compile.
+     */
     template<typename T>
     T to() const { return type_info<T>::from_expr(*this); }
+
+
+    /**
+     * Return a symbol expression.
+     */
+    static expression symbol(const std::string& v)
+    {
+        auto e = expression();
+        e.type = data_type::symbol;
+        e.valsym = v;
+        return e;
+    }
+
 
     expression()                                        : type(data_type::none) {}
     expression(const none&)                             : type(data_type::none) {}
@@ -115,50 +106,36 @@ public:
         }
     }
 
+    /**
+     * Construct an expression from a pair of iterators.
+     */
     template<typename IteratorType>
     expression(IteratorType first, IteratorType second) :
     expression(std::vector<expression>(first, second))
     {
     }
 
-    static expression symbol(const std::string& v)
-    {
-        auto e = expression();
-        e.type = data_type::symbol;
-        e.valsym = v;
-        return e;
-    }
+    auto get_i32()  const { return vali32; }
+    auto get_f64()  const { return valf64; }
+    auto get_str()  const { return valstr; }
+    auto get_sym()  const { return valsym; }
+    auto get_func() const { return valfunc; }
+    auto get_data() const { return valdata; }
+    auto key()                 const { return keyword; }
+    auto dtype()               const { return type; }
+    auto has_type(data_type t) const { return type == t; }
+    auto begin()        const { return parts.begin(); }
+    auto end()          const { return parts.end(); }
+    auto rbegin()       const { return parts.rbegin(); }
+    auto rend()         const { return parts.rend(); }
+    const auto& front() const { return parts.front(); }
+    const auto& back()  const { return parts.back(); }
 
-    static expression table(const std::vector<expression>& v)
-    {
-        auto e = expression();
-        e.type = v.empty() ? data_type::none : data_type::table;
-        e.parts = v;
-        return e;
-    }
 
-    expression keyed(const std::string& kw) const
-    {
-        auto e = *this;
-        e.keyword = kw;
-        return e;
-    }
-
-    data_type dtype() const
-    {
-        return type;
-    }
-
-    bool has_type(data_type other_type) const
-    {
-        return type == other_type;
-    }
-
-    std::string key() const
-    {
-        return keyword;
-    }
-
+    /**
+     * Return the unkeyed part at the given index. This is equivalent to
+     * e.items()[index], but may be faster or slower depending on the context.
+     */
     expression item(std::size_t index) const
     {
         std::size_t n = 0;
@@ -177,6 +154,11 @@ public:
         return {};
     }
 
+
+    /**
+     * Return the first part whose key matches the one specified, or none if
+     * none exists (including if this is not a table).
+     */
     expression attr(const std::string& key) const
     {
         for (const auto& part : parts)
@@ -189,6 +171,10 @@ public:
         return {};    
     }
 
+
+    /**
+     * Return the unkeyed subset of this expression's parts.
+     */
     std::vector<expression> list() const
     {
         std::vector<expression> list_parts;
@@ -203,6 +189,10 @@ public:
         return list_parts;
     }
 
+
+    /**
+     * Return the keyed subset of this expression's parts.
+     */
     std::vector<expression> dict() const
     {
         std::vector<expression> dict_parts;
@@ -215,33 +205,6 @@ public:
             }
         }
         return dict_parts;
-    }
-
-    std::unordered_set<std::string> symbols() const
-    {
-        switch (type)
-        {
-            case data_type::none     : return {};
-            case data_type::i32      : return {};
-            case data_type::f64      : return {};
-            case data_type::str      : return {};
-            case data_type::symbol   : return {valsym};
-            case data_type::data     : return {};
-            case data_type::function : return {};
-            case data_type::table:
-            {
-                std::unordered_set<std::string> res;
-
-                for (const auto& part : parts)
-                {
-                    for (const auto& s : part.symbols())
-                    {
-                        res.insert(s);
-                    }
-                }
-                return res;
-            }
-        }
     }
 
 
@@ -293,6 +256,69 @@ public:
 
 
     /**
+     * Return this expression as the sole element of a new table.
+     */
+    expression nest() const
+    {
+        return expression({*this});
+    }
+
+
+    /**
+     * Return an expression built from the parts of this one and the parts of
+     * the one specified.
+     */
+    expression concat(const expression& more) const
+    {
+        auto result = parts;
+        result.insert(result.end(), more.begin(), more.end());
+        return result;
+    }
+
+
+    /**
+     * Return a set of all symbols referenced at any level in this expression.
+     */
+    std::unordered_set<std::string> symbols() const
+    {
+        switch (type)
+        {
+            case data_type::none     : return {};
+            case data_type::i32      : return {};
+            case data_type::f64      : return {};
+            case data_type::str      : return {};
+            case data_type::symbol   : return {valsym};
+            case data_type::data     : return {};
+            case data_type::function : return {};
+            case data_type::table:
+            {
+                std::unordered_set<std::string> result;
+
+                for (const auto& part : parts)
+                {
+                    for (const auto& s : part.symbols())
+                    {
+                        result.insert(s);
+                    }
+                }
+                return result;
+            }
+        }
+    }
+
+
+    /**
+     * Return a copy of this expression with a different key.
+     */
+    expression keyed(const std::string& kw) const
+    {
+        auto e = *this;
+        e.keyword = kw;
+        return e;
+    }
+
+
+    /**
      * Returns this expression with all of its symbols having the name `from`
      * renamed to `to`.
      */
@@ -309,27 +335,40 @@ public:
             case data_type::function : return *this;
             case data_type::table:
             {
-                std::vector<expression> res;
+                std::vector<expression> result;
 
                 for (const auto& part : parts)
                 {
-                    res.push_back(part.relabeled(from, to));
+                    result.push_back(part.relabeled(from, to));
                 }
-                return res;
+                return result;
             }
         }
     }
 
+
+    /**
+     * Return the expression part at the specified index. Throws an
+     * out_of_range exception if the index is invalid.
+     */
     const expression& at(std::size_t index) const
     {
         return parts.at(index);
     }
 
+
+    /**
+     * Return the number of parts if this is a table, or zero otherwise.
+     */
     std::size_t size() const
     {
         return parts.size();
     }
 
+    /**
+     * Return true if this is none or an empty table (the two are supposed to
+     * be equivalent).
+     */
     bool empty() const
     {
         return
@@ -337,57 +376,49 @@ public:
         (type == data_type::table && parts.empty());
     }
 
-    auto begin() const
-    {
-        return parts.begin();
-    }
 
-    auto end() const
-    {
-        return parts.end();
-    }
-
-    auto rbegin() const
-    {
-        return parts.rbegin();
-    }
-
-    auto rend() const
-    {
-        return parts.rend();
-    }
-
-    const auto& front() const
-    {
-        return parts.front();
-    }
-
-    const auto& back() const
-    {
-        return parts.back();
-    }
-
+    /**
+     * Return the first part if this is a non-empty table, and none otherwise.
+     */
     expression first() const
     {
         return parts.size() > 0 ? parts[0] : none();
     }
 
+
+    /**
+     * Return the second part if this is table of size >= 2, and none
+     * otherwise.
+     */
     expression second() const
     {
         return parts.size() > 1 ? parts[1] : none();
     }
 
+
+    /**
+     * Return the parts following the first one.
+     */
     expression rest() const
     {
         return parts.size() > 1 ? expression(begin() + 1, end()) : none();
     }
 
+
+    /**
+     * Return the last part if this is a non-empty table, and none otherwise.
+     */
     expression last() const
     {
         return parts.size() > 0 ? parts.back() : none();
     }
 
-    int get_i32() const
+
+    /**
+     * Return the best-guess integer equivalent for this expression: floats
+     * are truncated and strings are converted via std::stoi.
+     */
+    int as_i32() const
     {
         switch(type)
         {
@@ -398,11 +429,16 @@ public:
             case data_type::symbol   : return 0;
             case data_type::data     : return 0;
             case data_type::function : return 0;
-            case data_type::table: return 0;
+            case data_type::table    : return 0;
         }
     }
 
-    double get_f64() const
+
+    /**
+     * Return the best-guess double equivalent for this expression: ints are
+     * promoted and strings are converted via std::stod.
+     */
+    double as_f64() const
     {
         switch(type)
         {
@@ -417,32 +453,36 @@ public:
         }
     }
 
-    std::string get_str() const
+
+    /**
+     * Return the best-guess string equivalent for this expression.
+     */
+    std::string as_str() const
     {
-        return valstr;
+        switch(type)
+        {
+            case data_type::none     : return "()";
+            case data_type::i32      : return std::to_string(vali32);
+            case data_type::f64      : return std::to_string(valf64);
+            case data_type::str      : return valstr;
+            case data_type::symbol   : return valsym;
+            case data_type::data     : return valdata ? "()" : valdata->type_name();
+            case data_type::function : return "<func>";
+            case data_type::table    : return unparse();
+        }
     }
 
-    std::string get_sym() const
-    {
-        return valsym;
-    }
+    operator int()         const { return as_i32(); }
+    operator double()      const { return as_f64(); }
+    operator std::string() const { return as_str(); }
 
-    func_t get_func() const
-    {
-        return valfunc;
-    }
 
-    data_t get_data() const
-    {
-        return valdata;
-    }
-
-    operator int()         const { return get_i32(); }
-    operator double()      const { return get_f64(); }
-    operator std::string() const { return get_str(); }
-    operator func_t()      const { return get_func(); }
-    operator data_t()      const { return get_data(); }
-
+    /**
+     * Try to return a string interpretation of this expression that can be
+     * restored by the parser. The only cases where this can fail are if the
+     * expression is a function, or if it is a user_data that has not
+     * implemented the unparse method.
+     */
     std::string unparse() const
     {
         auto pre = keyword.empty() ? "" : keyword + "=";
@@ -454,8 +494,8 @@ public:
             case data_type::f64      : return pre + std::to_string(valf64);
             case data_type::str      : return pre + "'" + valstr + "'";
             case data_type::symbol   : return pre + valsym;
-            case data_type::data     : return pre + "<data>";
-            case data_type::function : return pre + "<function>";
+            case data_type::data     : return pre + valdata->to_expr().unparse();
+            case data_type::function : return pre + "<func>";
             case data_type::table:
             {
                 std::string res;
@@ -469,7 +509,12 @@ public:
         }
     }
 
-    expression call(const expression& args)
+
+    /**
+     * Call an expression that is a function with the given args, if it is a
+     * function. Otherwise this method throws a runtime_error.
+     */
+    expression call(const expression& args) const
     {
         if (! has_type(crt::data_type::function) || ! valfunc)
         {
@@ -478,6 +523,10 @@ public:
         return valfunc(args);
     }
 
+
+    /**
+     * Return the name of the data type.
+     */
     const char* type_name() const
     {
         switch (type)
@@ -493,6 +542,15 @@ public:
         }
     };
 
+
+    /**
+     * Evaluate this expression using the specified scope and call adapter.
+     * Symbols are resolved in the scope. Tables are interpreted by the call
+     * adapter, which should find the first table element is a function. The
+     * remaining arguments should be resolved recursively, and passed as
+     * arguments to that function. If the first argument is not a function,
+     * the call adapter may interpret the expression as a table.
+     */
     template<typename Mapping, typename CallAdapter>
     expression resolve(const Mapping& scope, const CallAdapter& adapter) const
     {
@@ -518,6 +576,12 @@ public:
         }
     }
 
+
+    /**
+     * Test for equality between two expressions. Equality means exact
+     * equivalence of type and value. Functions are always unequal, even to
+     * themselves.
+     */
     bool operator==(const expression& other) const
     {
         return
@@ -533,45 +597,13 @@ public:
         parts   == other.parts;
     }
 
+
+    /**
+     * Test for inequality.
+     */
     bool operator!=(const expression& other) const
     {
         return ! operator==(other);
-    }
-
-    /**
-     * Mutate this expression so that (1) it is table if it wasn't before,
-     * and (2) any of its parts with the given key are reset to value. If no
-     * parts have that key, then a new part is appended.
-     */
-    void set(const char* key, const expression& value)
-    {
-        bool exists = false;
-        ensure_composite();
-
-        for (auto& part : parts)
-        {
-            if (part.keyword == key)
-            {
-                part = value.keyed (key);
-                exists = true;
-            }
-        }
-        if (! exists)
-        {
-            parts.push_back (value.keyed (key));
-        }
-    }
-
-    /**
-     * Mutate this expression if necessary so that it is table. If it was
-     * previously not table, then it will become {*this};
-     */
-    void ensure_composite()
-    {
-        if (type != data_type::table)
-        {
-            *this = {*this};
-        }
     }
 
 
@@ -599,13 +631,23 @@ static std::shared_ptr<crt::user_data> crt::make_data(const T& v)
 }
 
 template<typename T>
-crt::expression crt::init()
+crt::func_t crt::init()
 {
-    return crt::expression([] (const crt::expression& e)
+    return [] (const crt::expression& e) -> crt::expression
     {
         return crt::make_data(e.to<T>());
-    });
+    };
 }
+
+template<typename T>
+struct crt::capsule : public crt::user_data
+{
+    capsule() {}
+    capsule(const T& value) : value(value) {}
+    virtual const char* type_name() const { return type_info<T>::name(); }
+    virtual expression to_expr() const { return type_info<T>::to_expr(value); }
+    T value;
+};
 
 
 
@@ -661,6 +703,12 @@ public:
         }
         rules[key] = rule;
         return mark(downstream(key, true));
+    }
+
+
+    set_t define(const std::string& key, func_t func)
+    {
+        return insert_literal(key, func);
     }
 
 
@@ -1413,7 +1461,6 @@ crt::expression crt::parse(const std::string& source)
 class crt::call_adapter
 {
 public:
-
     template<typename Mapping>
     crt::expression call(const Mapping& scope, const crt::expression& expr) const
     {
@@ -1424,10 +1471,14 @@ public:
         {
             args.push_back(part.resolve(scope, *this).keyed(part.key()));
         }
-        return head.call(args);
+
+        if (head.has_type(crt::data_type::function))
+        {
+            return head.call(args);
+        }
+        return head.nest().concat(args);
     }
 };
-
 
 
 
@@ -1448,13 +1499,13 @@ TEST_CASE("expression passes basic sanity tests", "[expression]")
     REQUIRE(expression{1, 2} != expression());
     REQUIRE(expression().empty());
     REQUIRE(expression().dtype() == data_type::none);
-    REQUIRE(expression::table({}).empty());
-    REQUIRE(expression::table({}).dtype() == data_type::none);
+    REQUIRE(expression({}).empty());
+    REQUIRE(expression({}).dtype() == data_type::none);
     REQUIRE(expression() == expression::none());
     REQUIRE(expression() == expression({}));
     REQUIRE(expression() == expression{});
-    REQUIRE(expression() == expression::table({}));
-    REQUIRE(expression() != expression::table({1, 2, 3}));
+    REQUIRE(expression() == expression({}));
+    REQUIRE(expression() != expression({1, 2, 3}));
 }
 
 
