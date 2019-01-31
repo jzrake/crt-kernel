@@ -46,7 +46,7 @@ std::string crt::check_str(const crt::expression& e, std::size_t index)
 
     if (arg.has_type(crt::data_type::str))
     {
-        return arg.str();
+        return arg;
     }
     throw std::runtime_error(what_wrong_type("str", arg, index));
 }

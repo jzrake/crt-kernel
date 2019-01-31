@@ -7,6 +7,11 @@
 
 
 //=============================================================================
+crt::expression table(const crt::expression& e)
+{
+    return e;
+}
+
 crt::expression list(const crt::expression& e)
 {
     return e.list();
@@ -19,7 +24,24 @@ crt::expression dict(const crt::expression& e)
 
 crt::expression item(const crt::expression& e)
 {
-    return e.first().item(e.second().get_i32());
+    auto arg = e.first();
+    auto ind = e.second();
+
+    if (e.second().has_type(crt::data_type::i32))
+    {
+        return arg.item(ind.get_i32());
+    }
+    if (ind.has_type(crt::data_type::table))
+    {
+        std::vector<crt::expression> result;
+        
+        for (const auto& i : ind)
+        {
+            result.push_back(arg.item(int(i)).keyed(i.key()));
+        }
+        return result;
+    }
+    return {};
 }
 
 crt::expression attr(const crt::expression& e)
@@ -62,6 +84,11 @@ crt::expression range(const crt::expression& e)
     return result;
 }
 
+crt::expression slice(const crt::expression& e)
+{
+    return item({e.first(), range(e.rest())});
+}
+
 crt::expression concat(const crt::expression& e)
 {
     std::vector<crt::expression> result;
@@ -88,9 +115,56 @@ crt::expression join(const crt::expression& e)
     return result;
 }
 
+crt::expression apply(const crt::expression& e)
+{
+    return e.first().call(e.second());
+}
+
 crt::expression zip(const crt::expression& e)
 {
     return e.zip();
+}
+
+crt::expression map(const crt::expression& e)
+{
+    std::vector<crt::expression> result;
+
+    for (const auto& argset : e.rest().zip())
+    {
+        result.push_back(e.first().call(argset));
+    }
+    return result;
+}
+
+crt::expression first(const crt::expression& e)
+{
+    return e.first().first();
+}
+
+crt::expression second(const crt::expression& e)
+{
+    return e.first().second();
+}
+
+crt::expression rest(const crt::expression& e)
+{
+    return e.first().rest();
+}
+
+crt::expression last(const crt::expression& e)
+{
+    return e.first().last();
+}
+
+crt::expression len(const crt::expression& e)
+{
+    return int(e.first().size());
+}
+
+crt::expression reverse(const crt::expression& e)
+{
+    auto arg = e.first();
+    return crt::expression(arg.rbegin(), arg.rend());
 }
 
 
@@ -100,14 +174,24 @@ crt::expression zip(const crt::expression& e)
 int main()
 {
     crt::kernel kern;
+    kern.insert_literal("table", crt::expression(table));
     kern.insert_literal("list", crt::expression(list));
-    kern.insert_literal("dict", crt::expression(dict));
     kern.insert_literal("item", crt::expression(item));
+    kern.insert_literal("dict", crt::expression(dict));
     kern.insert_literal("attr", crt::expression(attr));
     kern.insert_literal("range", crt::expression(range));
+    kern.insert_literal("slice", crt::expression(slice));
+    kern.insert_literal("len", crt::expression(len));
     kern.insert_literal("concat", crt::expression(concat));
     kern.insert_literal("join", crt::expression(join));
     kern.insert_literal("zip", crt::expression(zip));
+    kern.insert_literal("map", crt::expression(map));
+    kern.insert_literal("apply", crt::expression(apply));
+    kern.insert_literal("first", crt::expression(first));
+    kern.insert_literal("second", crt::expression(second));
+    kern.insert_literal("rest", crt::expression(rest));
+    kern.insert_literal("last", crt::expression(last));
+    kern.insert_literal("reverse", crt::expression(reverse));
 
     while (! std::cin.eof())
     {

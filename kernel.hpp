@@ -92,25 +92,11 @@ public:
             type = data_type::none;
         }
     }
-    expression(const std::unordered_map<std::string, expression>& items)
-    {
-        if (items.empty())
-        {
-            type = data_type::none;
-        }
-        else
-        {
-            type = data_type::table;
-
-            for (const auto& item : items)
-            {
-                parts.push_back(item.second.keyed(item.first));
-            }
-        }
-    }
 
     template<typename IteratorType>
-    expression(IteratorType first, IteratorType second) : expression(std::vector<expression>(first, second)) {}
+    expression(IteratorType first, IteratorType second) : expression(std::vector<expression>(first, second))
+    {
+    }
 
     static expression symbol(const std::string& v)
     {
@@ -194,15 +180,15 @@ public:
         return list_parts;
     }
 
-    std::unordered_map<std::string, expression> dict() const
+    std::vector<expression> dict() const
     {
-        std::unordered_map<std::string, expression> dict_parts;
+        std::vector<expression> dict_parts;
 
         for (const auto& part : parts)
         {
             if (! part.keyword.empty())
             {
-                dict_parts[part.keyword] = part;
+                dict_parts.push_back (part);
             }
         }
         return dict_parts;
@@ -338,6 +324,16 @@ public:
         return parts.end();
     }
 
+    auto rbegin() const
+    {
+        return parts.rbegin();
+    }
+
+    auto rend() const
+    {
+        return parts.rend();
+    }
+
     const auto& front() const
     {
         return parts.front();
@@ -361,6 +357,11 @@ public:
     expression rest() const
     {
         return parts.size() > 1 ? expression(begin() + 1, end()) : none();
+    }
+
+    expression last() const
+    {
+        return parts.size() > 0 ? parts.back() : none();
     }
 
     int get_i32() const
