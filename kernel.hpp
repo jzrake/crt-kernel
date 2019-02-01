@@ -106,6 +106,7 @@ public:
         }
     }
 
+
     /**
      * Construct an expression from a pair of iterators.
      */
@@ -114,6 +115,7 @@ public:
     expression(std::vector<expression>(first, second))
     {
     }
+
 
     auto get_i32()  const { return vali32; }
     auto get_f64()  const { return valf64; }
@@ -128,16 +130,24 @@ public:
     auto end()          const { return parts.end(); }
     auto rbegin()       const { return parts.rbegin(); }
     auto rend()         const { return parts.rend(); }
-    const auto& front() const { return parts.front(); }
-    const auto& back()  const { return parts.back(); }
+    expression first()  const { return parts.size() > 0 ? parts[0] : none(); }
+    expression second() const { return parts.size() > 1 ? parts[1] : none(); }
+    expression rest()   const { return parts.size() > 1 ? expression(begin() + 1, end()) : none(); }
+    expression last()   const { return parts.size() > 0 ? parts.back() : none(); }
 
 
     /**
-     * Return the unkeyed part at the given index. This is equivalent to
-     * e.items()[index], but may be faster or slower depending on the context.
+     * If this is a table, return the unkeyed part at the given index
+     * (equivalent to e.items()[index], but may be faster or slower depending
+     * on the context). If this is a string, then return the character at the
+     * specified index if it's within range, and none otherwise.
      */
     expression item(std::size_t index) const
     {
+        if (type == data_type::str)
+        {
+            return index < valstr.size() ? expression(valstr.substr(index, 1)) : none();
+        }
         std::size_t n = 0;
 
         for (const auto& part : parts)
@@ -183,7 +193,7 @@ public:
         {
             if (part.keyword.empty())
             {
-                list_parts.push_back (part);
+                list_parts.push_back(part);
             }
         }
         return list_parts;
@@ -201,10 +211,19 @@ public:
         {
             if (! part.keyword.empty())
             {
-                dict_parts.push_back (part);
+                dict_parts.push_back(part);
             }
         }
         return dict_parts;
+    }
+
+
+    /**
+     * Return this expression as the sole element of a new table.
+     */
+    expression nest() const
+    {
+        return expression({*this});
     }
 
 
@@ -256,15 +275,6 @@ public:
 
 
     /**
-     * Return this expression as the sole element of a new table.
-     */
-    expression nest() const
-    {
-        return expression({*this});
-    }
-
-
-    /**
      * Return an expression built from the parts of this one and the parts of
      * the one specified.
      */
@@ -275,6 +285,41 @@ public:
         return result;
     }
 
+    bool operator<(const expression& other) const
+    {
+        if (type == other.type)
+        {
+            switch (type)
+            {
+                case data_type::none     : return false;
+                case data_type::i32      : return vali32 < other.vali32;
+                case data_type::f64      : return valf64 < other.valf64;
+                case data_type::str      : return valstr < other.valstr;
+                case data_type::symbol   : return valsym < other.valsym;
+                case data_type::data     : return valdata < other.valdata;
+                case data_type::function : return false;
+                case data_type::table    :
+                {
+                    for (int n = 0; n < std::min(size(), other.size()); ++n)
+                    {
+                        if (parts[n] != other.parts[n])
+                        {
+                            return parts[n] < other.parts[n];
+                        }
+                    }
+                    return size() < other.size();
+                }
+            }
+        }
+        return type < other.type;
+    }
+
+    expression sort() const
+    {
+        auto result = parts;
+        std::sort(result.begin(), result.end());
+        return result;
+    }
 
     /**
      * Return a set of all symbols referenced at any level in this expression.
@@ -374,43 +419,6 @@ public:
         return
         (type == data_type::none) ||
         (type == data_type::table && parts.empty());
-    }
-
-
-    /**
-     * Return the first part if this is a non-empty table, and none otherwise.
-     */
-    expression first() const
-    {
-        return parts.size() > 0 ? parts[0] : none();
-    }
-
-
-    /**
-     * Return the second part if this is table of size >= 2, and none
-     * otherwise.
-     */
-    expression second() const
-    {
-        return parts.size() > 1 ? parts[1] : none();
-    }
-
-
-    /**
-     * Return the parts following the first one.
-     */
-    expression rest() const
-    {
-        return parts.size() > 1 ? expression(begin() + 1, end()) : none();
-    }
-
-
-    /**
-     * Return the last part if this is a non-empty table, and none otherwise.
-     */
-    expression last() const
-    {
-        return parts.size() > 0 ? parts.back() : none();
     }
 
 
@@ -1493,7 +1501,6 @@ public:
 //=============================================================================
 #ifdef TEST_KERNEL
 #include "catch.hpp"
-#include "any.hpp"
 using namespace crt;
 
 

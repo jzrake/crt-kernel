@@ -162,6 +162,11 @@ crt::expression len(const crt::expression& e)
     return int(e.first().size());
 }
 
+crt::expression sort(const crt::expression& e)
+{
+    return e.first().sort();
+}
+
 crt::expression reverse(const crt::expression& e)
 {
     auto arg = e.first();
@@ -246,6 +251,7 @@ int main()
     kern.define("reverse",   builtin::reverse);
     kern.define("second",    builtin::second);
     kern.define("slice",     builtin::slice);
+    kern.define("sort",      builtin::sort);
     kern.define("table",     builtin::table);
     kern.define("type",      builtin::type);
     kern.define("unparse",   builtin::unparse);
