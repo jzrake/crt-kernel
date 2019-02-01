@@ -173,6 +173,11 @@ crt::expression reverse(const crt::expression& e)
     return crt::expression(arg.rbegin(), arg.rend());
 }
 
+crt::expression nest(const crt::expression& e)
+{
+    return e.first().nest();
+}
+
 crt::expression type(const crt::expression& e)
 {
     return std::string(e.first().type_name());
@@ -246,6 +251,7 @@ int main()
     kern.define("len",       builtin::len);
     kern.define("list",      builtin::list);
     kern.define("map",       builtin::map);
+    kern.define("nest",      builtin::nest);
     kern.define("range",     builtin::range);
     kern.define("rest",      builtin::rest);
     kern.define("reverse",   builtin::reverse);

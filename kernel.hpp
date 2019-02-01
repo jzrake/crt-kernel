@@ -207,7 +207,8 @@ public:
 
     /**
      * Return the first part whose key matches the one specified, or none if
-     * none exists (including if this is not a table).
+     * none exists (including if this is not a table). This function removes
+     * the keyword part of the resulting expression.
      */
     expression attr(const std::string& key) const
     {
@@ -215,7 +216,7 @@ public:
         {
             if (part.keyword == key)
             {
-                return part;
+                return part.keyed(std::string());
             }
         }
         return {};    
@@ -259,18 +260,21 @@ public:
 
 
     /**
-     * Return this expression as the sole element of a new table.
+     * Return this expression as the sole element of a new table:
+     * 
+     *                   key=val -> (key=val) .
+     *
      */
     expression nest() const
     {
-        return expression({*this});
+        return crt::expression({*this});
     }
 
 
     /**
      * Returns this expression with its outermost two layers transposed:
      * 
-     *          ((a b c) (1 2 3)) -> ((a 1) (b 2) (b 3)).
+     *          ((a b c) (1 2 3)) -> ((a 1) (b 2) (b 3)) .
      *
      * If this expression is not a table, then an empty expression is
      * returned. If any of its parts is not a table, that value is broadcast
@@ -624,17 +628,17 @@ public:
     {
         switch (type)
         {
-            case data_type::none     : return none();
-            case data_type::i32      : return vali32;
-            case data_type::f64      : return valf64;
-            case data_type::str      : return valstr;
-            case data_type::data     : return valdata;
-            case data_type::function : return valfunc;
-            case data_type::table    : return adapter.call(scope, *this);
+            case data_type::none     : return *this;
+            case data_type::i32      : return *this;
+            case data_type::f64      : return *this;
+            case data_type::str      : return *this;
+            case data_type::data     : return *this;
+            case data_type::function : return *this;
+            case data_type::table    : return adapter.call(scope, *this).keyed(keyword);
             case data_type::symbol   :
             {
                 try {
-                    return scope.at(valsym);
+                    return scope.at(valsym).keyed(keyword);
                 }
                 catch (const std::out_of_range& e)
                 {
@@ -1544,7 +1548,7 @@ public:
 
         for (const auto& part : expr.rest())
         {
-            args.push_back(part.resolve(scope, *this).keyed(part.key()));
+            args.push_back(part.resolve(scope, *this));
         }
 
         if (head.has_type(crt::data_type::function))
