@@ -24,8 +24,21 @@ namespace crt
     struct user_data
     {
         virtual ~user_data() {}
+
+
+        /**
+         * Return a type name for the user data.
+         */
         virtual const char* type_name() const = 0;
-        virtual expression to_expr() const = 0;
+
+
+        /**
+         * Convert this user_data to an expression. The return value should
+         * probably be a table, but in principle anything other than another
+         * user_data is OK, including none. Returning a user_data here would
+         * cause the unparse method to recurse forever.
+         */
+        virtual expression to_table() const = 0;
     };
 
 
@@ -62,11 +75,11 @@ public:
 
     /**
      * Return an expression converted from a custom data type. You must
-     * specialize the type_info struct, and implement the to_expr method for
+     * specialize the type_info struct, and implement the to_table method for
      * this to compile.
      */
     template<typename T>
-    static expression from(const T& val) { return type_info<T>::to_expr(val); }
+    static expression from(const T& val) { return type_info<T>::to_table(val); }
 
 
     /**
@@ -90,6 +103,9 @@ public:
     }
 
 
+    /**
+     * Default constructor.
+     */
     expression()                                        : type(data_type::none) {}
     expression(const none&)                             : type(data_type::none) {}
     expression(int vali32)                              : type(data_type::i32), vali32(vali32) {}
@@ -97,7 +113,6 @@ public:
     expression(const std::string& valstr)               : type(data_type::str), valstr(valstr) {}
     expression(data_t valdata)                          : type(data_type::data), valdata(valdata) {}
     expression(func_t valfunc)                          : type(data_type::function), valfunc(valfunc) {}
-    expression(std::initializer_list<expression> parts) : expression(std::vector<expression>(parts)) {}
     expression(const std::vector<expression>& parts)    : type(data_type::table), parts(parts)
     {
         if (expression::parts.empty())
@@ -105,6 +120,8 @@ public:
             type = data_type::none;
         }
     }
+    expression(std::initializer_list<expression> parts) :
+    expression(std::vector<expression>(parts)) {}
 
 
     /**
@@ -117,6 +134,9 @@ public:
     }
 
 
+    /**
+     * Return the raw data members themselves.
+     */
     auto get_i32()  const { return vali32; }
     auto get_f64()  const { return valf64; }
     auto get_str()  const { return valstr; }
@@ -134,6 +154,26 @@ public:
     expression second() const { return parts.size() > 1 ? parts[1] : none(); }
     expression rest()   const { return parts.size() > 1 ? expression(begin() + 1, end()) : none(); }
     expression last()   const { return parts.size() > 0 ? parts.back() : none(); }
+
+
+    /**
+     * If this is a user data of the given type, return a reference to
+     * the underlying value. Otherwise, throws a runtime_error.
+     */
+    template<typename T>
+    const T& check_data() const
+    {
+        if (has_type(data_type::data))
+        {
+            if (auto data = std::dynamic_pointer_cast<capsule<T>>(valdata))
+            {
+                return data->value;
+            }
+        }
+        throw std::runtime_error(std::string("wrong type: expected ")
+            + type_info<T>::name() + ", got "
+            + type_name());
+    }
 
 
     /**
@@ -285,6 +325,11 @@ public:
         return result;
     }
 
+
+    /**
+     * Comparison operator: works like a dictionary for strings and tables.
+     * Different types compare the integer equivalent of their type enums.
+     */
     bool operator<(const expression& other) const
     {
         if (type == other.type)
@@ -307,19 +352,24 @@ public:
                             return parts[n] < other.parts[n];
                         }
                     }
-                    return size() < other.size();
+                    return size() < other.size() || keyword < other.keyword;
                 }
             }
         }
         return type < other.type;
     }
 
+
+    /**
+     * Return a sorted version of this expression.
+     */
     expression sort() const
     {
         auto result = parts;
         std::sort(result.begin(), result.end());
         return result;
     }
+
 
     /**
      * Return a set of all symbols referenced at any level in this expression.
@@ -360,6 +410,16 @@ public:
         auto e = *this;
         e.keyword = kw;
         return e;
+    }
+
+
+    /**
+     * Convenience method to return a default value for this expression, if it
+     * evaluates empty.
+     */
+    expression otherwise (const expression& e) const
+    {
+        return ! empty() ? *this : e;
     }
 
 
@@ -502,7 +562,7 @@ public:
             case data_type::f64      : return pre + std::to_string(valf64);
             case data_type::str      : return pre + "'" + valstr + "'";
             case data_type::symbol   : return pre + valsym;
-            case data_type::data     : return pre + valdata->to_expr().unparse();
+            case data_type::data     : return pre + valdata->to_table().unparse();
             case data_type::function : return pre + "<func>";
             case data_type::table:
             {
@@ -653,7 +713,7 @@ struct crt::capsule : public crt::user_data
     capsule() {}
     capsule(const T& value) : value(value) {}
     virtual const char* type_name() const { return type_info<T>::name(); }
-    virtual expression to_expr() const { return type_info<T>::to_expr(value); }
+    virtual expression to_table() const { return type_info<T>::to_table(value); }
     T value;
 };
 

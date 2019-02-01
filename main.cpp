@@ -211,7 +211,7 @@ struct crt::type_info<my_struct>
     {
         return "my-struct";
     }
-    static expression to_expr(const my_struct& val)
+    static expression to_table(const my_struct& val)
     {
         return {
             expression(val.a).keyed("a"),
