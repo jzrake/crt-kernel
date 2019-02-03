@@ -110,6 +110,7 @@ public:
     expression()                                        : type(data_type::none) {}
     expression(const none&)                             : type(data_type::none) {}
     expression(int vali32)                              : type(data_type::i32), vali32(vali32) {}
+    expression(float valf64)                            : type(data_type::f64), valf64(valf64) {}
     expression(double valf64)                           : type(data_type::f64), valf64(valf64) {}
     expression(const std::string& valstr)               : type(data_type::str), valstr(valstr) {}
     expression(data_t valdata)                          : type(data_type::data), valdata(valdata) {}
@@ -156,6 +157,13 @@ public:
     expression third()  const { return parts.size() > 2 ? parts[2] : none(); }
     expression rest()   const { return parts.size() > 1 ? expression(begin() + 1, end()) : none(); }
     expression last()   const { return parts.size() > 0 ? parts.back() : none(); }
+
+
+    template<typename T>
+    auto has_type() const
+    {
+        return type_name() == crt::type_info<T>::name();
+    }
 
 
     /**
@@ -621,6 +629,7 @@ public:
 
     operator bool()        const { return as_boolean(); }
     operator int()         const { return as_i32(); }
+    operator float()       const { return as_f64(); }
     operator double()      const { return as_f64(); }
     operator std::string() const { return as_str(); }
 
@@ -792,8 +801,8 @@ struct crt::capsule : public crt::user_data
 {
     capsule() {}
     capsule(const T& value) : value(value) {}
-    virtual const char* type_name() const { return type_info<T>::name(); }
-    virtual expression to_table() const { return type_info<T>::to_table(value); }
+    const char* type_name() const override { return type_info<T>::name(); }
+    expression to_table() const override { return type_info<T>::to_table(value); }
     T value;
 };
 
