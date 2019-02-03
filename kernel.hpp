@@ -53,6 +53,7 @@ namespace crt
     template<typename T> static std::shared_ptr<user_data> make_data(const T&);
     template<typename T> static crt::func_t init();
     static inline expression parse(const std::string&);
+    static inline expression parse(const char*);
 
 
     //=========================================================================
@@ -152,6 +153,7 @@ public:
     auto rend()         const { return parts.rend(); }
     expression first()  const { return parts.size() > 0 ? parts[0] : none(); }
     expression second() const { return parts.size() > 1 ? parts[1] : none(); }
+    expression third()  const { return parts.size() > 2 ? parts[2] : none(); }
     expression rest()   const { return parts.size() > 1 ? expression(begin() + 1, end()) : none(); }
     expression last()   const { return parts.size() > 0 ? parts.back() : none(); }
 
@@ -178,9 +180,11 @@ public:
 
     /**
      * If this is a table, return the unkeyed part at the given index
-     * (equivalent to e.items()[index], but may be faster or slower depending
-     * on the context). If this is a string, then return the character at the
-     * specified index if it's within range, and none otherwise.
+     * (equivalent to e.items()[index], except that it returns none if
+     * out-of-bounds. This may be more or less efficient than first getting
+     * the result of items() depending on the context. If this is a string,
+     * then return the character at the specified index if it's within range,
+     * and none otherwise.
      */
     expression item(std::size_t index) const
     {
@@ -306,7 +310,7 @@ public:
             {
                 if (part.has_type(data_type::table))
                 {
-                    result[n].parts.push_back(part.parts[n]);
+                    result[n].parts.push_back(part.parts[n].keyed(part.keyword));
                 }
                 else
                 {
@@ -315,6 +319,40 @@ public:
             }
         }
         return result;
+    }
+
+
+    expression inc() const
+    {
+        switch (type)
+        {
+            case data_type::none: return +1;
+            case data_type::i32: return vali32 + 1;
+            case data_type::f64: return valf64 + 1.0;
+            default: return *this;
+        }
+    }
+
+
+    expression dec() const
+    {
+        switch (type)
+        {
+            case data_type::none: return -1;
+            case data_type::i32: return vali32 - 1;
+            case data_type::f64: return valf64 - 1.0;
+            default: return *this;
+        }
+    }
+
+
+    expression toggle() const
+    {
+        switch (type)
+        {
+            case data_type::none: return 1;
+            default: return {};
+        }
     }
 
 
@@ -382,13 +420,10 @@ public:
     {
         switch (type)
         {
-            case data_type::none     : return {};
-            case data_type::i32      : return {};
-            case data_type::f64      : return {};
-            case data_type::str      : return {};
-            case data_type::symbol   : return {valsym};
-            case data_type::data     : return {};
-            case data_type::function : return {};
+            case data_type::symbol:
+            {
+                return {valsym};
+            }
             case data_type::table:
             {
                 std::unordered_set<std::string> result;
@@ -402,6 +437,7 @@ public:
                 }
                 return result;
             }
+            default: return {};
         }
     }
 
@@ -431,7 +467,34 @@ public:
      * Returns this expression with all of its symbols having the name `from`
      * renamed to `to`.
      */
-    expression relabeled(const std::string& from, const std::string& to) const
+    expression relabel(const std::string& from, const std::string& to) const
+    {
+        switch (type)
+        {
+            case data_type::symbol:
+            {
+                return {expression::symbol(valsym == from ? to : valsym).keyed(keyword)};
+            }
+            case data_type::table:
+            {
+                std::vector<expression> result;
+
+                for (const auto& part : parts)
+                {
+                    result.push_back(part.relabel(from, to));
+                }
+                return result;
+            }
+            default: return *this;
+        }
+    }
+
+
+    /**
+     * Replace all instances of a symbol with the given expression. Recurses
+     * if this is a table.
+     */
+    expression replace(const std::string& symbol, const crt::expression& e) const
     {
         switch (type)
         {
@@ -439,7 +502,7 @@ public:
             case data_type::i32      : return *this;
             case data_type::f64      : return *this;
             case data_type::str      : return *this;
-            case data_type::symbol   : return {expression::symbol(valsym == from ? to : valsym).keyed(keyword)};
+            case data_type::symbol   : return valsym == symbol ? e.keyed(keyword) : *this;
             case data_type::data     : return *this;
             case data_type::function : return *this;
             case data_type::table:
@@ -448,7 +511,7 @@ public:
 
                 for (const auto& part : parts)
                 {
-                    result.push_back(part.relabeled(from, to));
+                    result.push_back(part.replace(symbol, e));
                 }
                 return result;
             }
@@ -474,6 +537,7 @@ public:
         return parts.size();
     }
 
+
     /**
      * Return true if this is none or an empty table (the two are supposed to
      * be equivalent).
@@ -486,6 +550,22 @@ public:
     }
 
 
+    bool as_boolean() const
+    {
+       switch(type)
+       {
+           case data_type::none     : return false;
+           case data_type::i32      : return vali32;
+           case data_type::f64      : return valf64;
+           case data_type::str      : return ! valstr.empty();
+           case data_type::symbol   : return ! valsym.empty();
+           case data_type::data     : return valdata != nullptr;
+           case data_type::function : return valfunc != nullptr;
+           case data_type::table    : return ! parts.empty();
+       }
+    }
+
+
     /**
      * Return the best-guess integer equivalent for this expression: floats
      * are truncated and strings are converted via std::stoi.
@@ -494,14 +574,10 @@ public:
     {
         switch(type)
         {
-            case data_type::none     : return 0;
-            case data_type::i32      : return vali32;
-            case data_type::f64      : return valf64;
-            case data_type::str      : return std::stoi(valstr);
-            case data_type::symbol   : return 0;
-            case data_type::data     : return 0;
-            case data_type::function : return 0;
-            case data_type::table    : return 0;
+            case data_type::i32: return vali32;
+            case data_type::f64: return valf64;
+            case data_type::str: try { return std::stoi(valstr); } catch (...) { return 0; }
+            default: return 0;
         }
     }
 
@@ -514,20 +590,18 @@ public:
     {
         switch(type)
         {
-            case data_type::none     : return 0.0;
-            case data_type::i32      : return vali32;
-            case data_type::f64      : return valf64;
-            case data_type::str      : return std::stod(valstr);
-            case data_type::symbol   : return 0.0;
-            case data_type::data     : return 0.0;
-            case data_type::function : return 0.0;
-            case data_type::table    : return 0.0;
+            case data_type::i32: return vali32;
+            case data_type::f64: return valf64;
+            case data_type::str: try { return std::stod(valstr); } catch (...) { return 0.0; }
+            default: return 0;
         }
     }
 
 
     /**
-     * Return the best-guess string equivalent for this expression.
+     * Return the best-guess string equivalent for this expression. This returns
+     * an un-quoted string for both data_type::str and data_type::symbol, but it
+     * unparses tables.
      */
     std::string as_str() const
     {
@@ -544,6 +618,8 @@ public:
         }
     }
 
+
+    operator bool()        const { return as_boolean(); }
     operator int()         const { return as_i32(); }
     operator double()      const { return as_f64(); }
     operator std::string() const { return as_str(); }
@@ -592,7 +668,7 @@ public:
         {
             throw std::runtime_error("expression is not a function");
         }
-        return valfunc(args);
+        return valfunc(args).keyed(keyword);
     }
 
 
@@ -777,6 +853,10 @@ public:
         return mark(downstream(key, true));
     }
 
+    set_t insert(const expression& expr)
+    {
+        return insert (expr.key(), expr, 0);
+    }
 
     set_t define(const std::string& key, func_t func)
     {
@@ -901,6 +981,21 @@ public:
     const expression& expr_at(const std::string& key) const
     {
         return rules.at(key).expr;
+    }
+
+
+    /**
+     * Return the value at the given key if it exists, and none otherwise.
+     */
+    const expression& attr(const std::string& key) const
+    {
+        static expression empty = expression::none();
+
+        if (contains(key))
+        {
+            return at(key);
+        }
+        return empty;
     }
 
 
@@ -1239,12 +1334,13 @@ public:
     }
 
     template<typename CallAdapter>
-    void update_all(const set_t& keys, const CallAdapter& adapter)
+    set_t update_all(const set_t& keys, const CallAdapter& adapter)
     {
         for (const auto& key : keys)
         {
             update_recurse(key, adapter);
         }
+        return keys;
     }
 
     void relabel(const std::string& from, const std::string& to)
@@ -1265,7 +1361,7 @@ public:
         }
         for (auto& rule : rules)
         {
-            rule.second.expr = rule.second.expr.relabeled(from, to);
+            rule.second.expr = rule.second.expr.relabel(from, to);
         }
     }
 
@@ -1303,9 +1399,21 @@ public:
 
 
     //=========================================================================
-    static expression parse(const char* expr)
+    static expression parse(const char* source)
     {
-        return parse_part(expr);
+        if (std::strlen(source) > 0 && source[0] == '(')
+        {
+            return parse_part(source);
+        }
+
+        std::vector<expression> parts;
+        auto c = source;
+
+        while (*c != '\0')
+        {
+            parts.push_back(parse_part(c));
+        }
+        return parts;
     }
 
 
@@ -1531,6 +1639,11 @@ private:
 crt::expression crt::parse(const std::string& source)
 {
     return parser::parse(source.data());
+}
+
+crt::expression crt::parse(const char* source)
+{
+    return parser::parse(source);
 }
 
 
