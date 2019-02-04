@@ -112,6 +112,7 @@ public:
     expression(int vali32)                              : type(data_type::i32), vali32(vali32) {}
     expression(float valf64)                            : type(data_type::f64), valf64(valf64) {}
     expression(double valf64)                           : type(data_type::f64), valf64(valf64) {}
+    expression(const char* valstr)                      : type(data_type::str), valstr(valstr) {}
     expression(const std::string& valstr)               : type(data_type::str), valstr(valstr) {}
     expression(data_t valdata)                          : type(data_type::data), valdata(valdata) {}
     expression(func_t valfunc)                          : type(data_type::function), valfunc(valfunc) {}
