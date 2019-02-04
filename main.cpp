@@ -5,37 +5,68 @@
 
 
 //=============================================================================
-namespace builtin
-{
+namespace crt {
+namespace core {
+    expression table   (const expression& e);
+    expression list    (const expression& e);
+    expression dict    (const expression& e);
+    expression switch_ (const expression& e);
+    expression item    (const expression& e);
+    expression attr    (const expression& e);
+    expression range   (const expression& e);
+    expression slice   (const expression& e);
+    expression concat  (const expression& e);
+    expression join    (const expression& e);
+    expression apply   (const expression& e);
+    expression zip     (const expression& e);
+    expression map     (const expression& e);
+    expression nest    (const expression& e);
+    expression first   (const expression& e);
+    expression second  (const expression& e);
+    expression rest    (const expression& e);
+    expression last    (const expression& e);
+    expression len     (const expression& e);
+    expression sort    (const expression& e);
+    expression reverse (const expression& e);
+    expression type    (const expression& e);
+    expression eval    (const expression& e);
+    expression unparse (const expression& e);
+    expression func    (const expression& e);
+}
+}
 
-crt::expression table(const crt::expression& e)
+
+
+
+//=============================================================================
+crt::expression crt::core::table(const crt::expression& e)
 {
     return e;
 }
 
-crt::expression list(const crt::expression& e)
+crt::expression crt::core::list(const crt::expression& e)
 {
     return e.list();
 }
 
-crt::expression dict(const crt::expression& e)
+crt::expression crt::core::dict(const crt::expression& e)
 {
     return e.dict();
 }
 
-crt::expression item(const crt::expression& e)
+crt::expression crt::core::item(const crt::expression& e)
 {
     auto arg = e.first();
     auto ind = e.second();
 
-    if (e.second().has_type(crt::data_type::i32))
+    if (ind.has_type(crt::data_type::i32))
     {
-        return arg.item(ind.get_i32());
+        return arg.item(int(ind));
     }
     if (ind.has_type(crt::data_type::table))
     {
         std::vector<crt::expression> result;
-        
+
         for (const auto& i : ind)
         {
             result.push_back(arg.item(int(i)).keyed(i.key()));
@@ -45,12 +76,12 @@ crt::expression item(const crt::expression& e)
     return {};
 }
 
-crt::expression attr(const crt::expression& e)
+crt::expression crt::core::attr(const crt::expression& e)
 {
     return e.first().attr(e.second());
 }
 
-crt::expression range(const crt::expression& e)
+crt::expression crt::core::range(const crt::expression& e)
 {
     int start = 0;
     int final = 0;
@@ -85,12 +116,12 @@ crt::expression range(const crt::expression& e)
     return result;
 }
 
-crt::expression slice(const crt::expression& e)
+crt::expression crt::core::slice(const crt::expression& e)
 {
     return item({e.first(), range(e.rest())});
 }
 
-crt::expression concat(const crt::expression& e)
+crt::expression crt::core::concat(const crt::expression& e)
 {
     std::vector<crt::expression> result;
 
@@ -101,7 +132,7 @@ crt::expression concat(const crt::expression& e)
     return result;
 }
 
-crt::expression join(const crt::expression& e)
+crt::expression crt::core::join(const crt::expression& e)
 {
     std::string result;
     std::string sep = e.attr("sep");
@@ -116,17 +147,17 @@ crt::expression join(const crt::expression& e)
     return result;
 }
 
-crt::expression apply(const crt::expression& e)
+crt::expression crt::core::apply(const crt::expression& e)
 {
     return e.first().call(e.second());
 }
 
-crt::expression zip(const crt::expression& e)
+crt::expression crt::core::zip(const crt::expression& e)
 {
     return e.zip();
 }
 
-crt::expression map(const crt::expression& e)
+crt::expression crt::core::map(const crt::expression& e)
 {
     std::vector<crt::expression> result;
 
@@ -137,100 +168,105 @@ crt::expression map(const crt::expression& e)
     return result;
 }
 
-crt::expression first(const crt::expression& e)
+crt::expression crt::core::first(const crt::expression& e)
 {
     return e.first().first();
 }
 
-crt::expression second(const crt::expression& e)
+crt::expression crt::core::second(const crt::expression& e)
 {
     return e.first().second();
 }
 
-crt::expression rest(const crt::expression& e)
+crt::expression crt::core::rest(const crt::expression& e)
 {
     return e.first().rest();
 }
 
-crt::expression last(const crt::expression& e)
+crt::expression crt::core::last(const crt::expression& e)
 {
     return e.first().last();
 }
 
-crt::expression len(const crt::expression& e)
+crt::expression crt::core::len(const crt::expression& e)
 {
     return int(e.first().size());
 }
 
-crt::expression sort(const crt::expression& e)
+crt::expression crt::core::switch_(const crt::expression& e)
+{
+    return e.first() ? e.second() : e.third();
+}
+
+crt::expression crt::core::sort(const crt::expression& e)
 {
     return e.first().sort();
 }
 
-crt::expression reverse(const crt::expression& e)
+crt::expression crt::core::reverse(const crt::expression& e)
 {
     auto arg = e.first();
     return crt::expression(arg.rbegin(), arg.rend());
 }
 
-crt::expression nest(const crt::expression& e)
+crt::expression crt::core::nest(const crt::expression& e)
 {
     return e.first().nest();
 }
 
-crt::expression type(const crt::expression& e)
+crt::expression crt::core::type(const crt::expression& e)
 {
     return std::string(e.first().type_name());
 }
 
-crt::expression eval(const crt::expression& e)
+crt::expression crt::core::eval(const crt::expression& e)
 {
     return crt::parse(e.first());
 }
 
-crt::expression unparse(const crt::expression& e)
+crt::expression crt::core::unparse(const crt::expression& e)
 {
     return e.first().unparse();
 }
 
+crt::expression crt::core::func(const crt::expression& e)
+{
+    auto locals = std::unordered_set<std::string>();
+    auto localized = e.first();
+
+    for (const auto& sym : e.symbols())
+    {
+        if (! sym.empty() && sym[0] == '@')
+        {
+            auto local_sym = sym.substr(1);
+            localized = localized.relabel(sym, local_sym);
+            locals.insert(local_sym);
+        }
+    }
+
+    auto result_func = [localized, locals] (const crt::expression& args)
+    {
+        auto result = localized;
+
+        for (auto var : locals)
+        {
+            if (var.empty())
+            {
+                result = result.replace(var, args.first());
+            }
+            else if (std::isdigit(var[0]))
+            {
+                result = result.replace(var, args.item(var[0] - '0' - 1));
+            }
+            else
+            {
+                result = result.replace(var, args.attr(var));
+            }
+        }
+        return result;
+    };
+    return crt::func_t(result_func);
 }
-
-
-
-
-
-//=============================================================================
-struct my_struct
-{
-    int a, b;
-};
-
-
-
-
-//=============================================================================
-template<>
-struct crt::type_info<my_struct>
-{
-    static const char* name()
-    {
-        return "my-struct";
-    }
-    static expression to_table(const my_struct& val)
-    {
-        return {
-            expression(val.a).keyed("a"),
-            expression(val.b).keyed("b"),
-        };
-    }
-    static my_struct from_expr(const expression& expr)
-    {
-        return {
-            expr.attr("a"),
-            expr.attr("b"),
-        };
-    }
-};
 
 
 
@@ -238,32 +274,34 @@ struct crt::type_info<my_struct>
 //=============================================================================
 int main()
 {
-    crt::kernel kern;
-    kern.define("apply",     builtin::apply);
-    kern.define("attr",      builtin::attr);
-    kern.define("concat",    builtin::concat);
-    kern.define("dict",      builtin::dict);
-    kern.define("eval",      builtin::eval);
-    kern.define("first",     builtin::first);
-    kern.define("item",      builtin::item);
-    kern.define("join",      builtin::join);
-    kern.define("last",      builtin::last);
-    kern.define("len",       builtin::len);
-    kern.define("list",      builtin::list);
-    kern.define("map",       builtin::map);
-    kern.define("nest",      builtin::nest);
-    kern.define("range",     builtin::range);
-    kern.define("rest",      builtin::rest);
-    kern.define("reverse",   builtin::reverse);
-    kern.define("second",    builtin::second);
-    kern.define("slice",     builtin::slice);
-    kern.define("sort",      builtin::sort);
-    kern.define("table",     builtin::table);
-    kern.define("type",      builtin::type);
-    kern.define("unparse",   builtin::unparse);
-    kern.define("zip",       builtin::zip);
-    kern.define("my-struct", crt::init<my_struct>());
+    using namespace crt::core;
 
+    crt::kernel kern;
+    kern.define("apply",     apply);
+    kern.define("attr",      attr);
+    kern.define("concat",    concat);
+    kern.define("dict",      dict);
+    kern.define("eval",      eval);
+    kern.define("first",     first);
+    kern.define("func",      func);
+    kern.define("item",      item);
+    kern.define("join",      join);
+    kern.define("last",      last);
+    kern.define("len",       len);
+    kern.define("list",      list);
+    kern.define("map",       map);
+    kern.define("nest",      nest);
+    kern.define("range",     range);
+    kern.define("rest",      rest);
+    kern.define("reverse",   reverse);
+    kern.define("second",    second);
+    kern.define("slice",     slice);
+    kern.define("sort",      sort);
+    kern.define("switch",    switch_);
+    kern.define("table",     table);
+    kern.define("type",      type);
+    kern.define("unparse",   unparse);
+    kern.define("zip",       zip);
 
     while (! std::cin.eof())
     {
@@ -276,7 +314,7 @@ int main()
         }
         catch (const std::exception& e)
         {
-            std::cerr << "Error: " << e.what() << std::endl;
+            std::cerr << e.what() << std::endl;
         }
     }
     return 0;

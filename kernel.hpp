@@ -473,62 +473,6 @@ public:
 
 
     /**
-     * Returns this expression with all of its symbols having the name `from`
-     * renamed to `to`.
-     */
-    expression relabel(const std::string& from, const std::string& to) const
-    {
-        switch (type)
-        {
-            case data_type::symbol:
-            {
-                return {expression::symbol(valsym == from ? to : valsym).keyed(keyword)};
-            }
-            case data_type::table:
-            {
-                std::vector<expression> result;
-
-                for (const auto& part : parts)
-                {
-                    result.push_back(part.relabel(from, to));
-                }
-                return result;
-            }
-            default: return *this;
-        }
-    }
-
-
-    /**
-     * Replace all instances of a symbol with the given expression. Recurses
-     * if this is a table.
-     */
-    expression replace(const std::string& symbol, const crt::expression& e) const
-    {
-        switch (type)
-        {
-            case data_type::none     : return *this;
-            case data_type::i32      : return *this;
-            case data_type::f64      : return *this;
-            case data_type::str      : return *this;
-            case data_type::symbol   : return valsym == symbol ? e.keyed(keyword) : *this;
-            case data_type::data     : return *this;
-            case data_type::function : return *this;
-            case data_type::table:
-            {
-                std::vector<expression> result;
-
-                for (const auto& part : parts)
-                {
-                    result.push_back(part.replace(symbol, e));
-                }
-                return result;
-            }
-        }
-    }
-
-
-    /**
      * Return the expression part at the specified index. Throws an
      * out_of_range exception if the index is invalid.
      */
@@ -703,9 +647,9 @@ public:
 
     /**
      * Evaluate this expression using the specified scope and call adapter.
-     * Symbols are resolved in the scope. Tables are interpreted by the call
-     * adapter, which should find the first table element is a function. The
-     * remaining arguments should be resolved recursively, and passed as
+     * Symbols are resolved in the given scope. Tables are interpreted by the
+     * call adapter, which should find the first table element is a function.
+     * The remaining arguments should be resolved recursively, and passed as
      * arguments to that function. If the first argument is not a function,
      * the call adapter may interpret the expression as a table.
      */
@@ -714,23 +658,73 @@ public:
     {
         switch (type)
         {
-            case data_type::none     : return *this;
-            case data_type::i32      : return *this;
-            case data_type::f64      : return *this;
-            case data_type::str      : return *this;
-            case data_type::data     : return *this;
-            case data_type::function : return *this;
-            case data_type::table    : return adapter.call(scope, *this).keyed(keyword);
-            case data_type::symbol   :
+            case data_type::table:
+            {
+                return adapter.call(scope, *this).keyed(keyword);
+            }
+            case data_type::symbol:
             {
                 try {
                     return scope.at(valsym).keyed(keyword);
                 }
                 catch (const std::out_of_range& e)
                 {
-                    throw std::runtime_error("unresolved symbol: " + valsym);
+                    return *this;
+                    // throw std::runtime_error("unresolved symbol: " + valsym);
                 }
             }
+            default: return *this;
+        }
+    }
+
+
+    /**
+     * Returns this expression with all of its symbols having the name `from`
+     * renamed to `to`.
+     */
+    expression relabel(const std::string& from, const std::string& to) const
+    {
+        switch (type)
+        {
+            case data_type::symbol:
+            {
+                return {expression::symbol(valsym == from ? to : valsym).keyed(keyword)};
+            }
+            case data_type::table:
+            {
+                std::vector<expression> result;
+
+                for (const auto& part : parts)
+                {
+                    result.push_back(part.relabel(from, to));
+                }
+                return result;
+            }
+            default: return *this;
+        }
+    }
+
+
+    /**
+     * Replace all instances of a symbol with the given expression. Recurses
+     * if this is a table.
+     */
+    expression replace(const std::string& symbol, const crt::expression& e) const
+    {
+        switch (type)
+        {
+            case data_type::symbol   : return valsym == symbol ? e.keyed(keyword) : *this;
+            case data_type::table:
+            {
+                std::vector<expression> result;
+
+                for (const auto& part : parts)
+                {
+                    result.push_back(part.replace(symbol, e));
+                }
+                return result;
+            }
+            default: return *this;
         }
     }
 
@@ -1399,7 +1393,7 @@ private:
 };
 
 
-
+#include <iostream>
 
 //=============================================================================
 class crt::parser
@@ -1433,22 +1427,27 @@ private:
     //=========================================================================
     static bool is_symbol_character(char e)
     {
-        return isalnum(e) || e == '_' || e == '-' || e == ':';
+        return std::isalnum(e) || e == '_' || e == '-' || e == ':' || e == '@';
+    }
+
+    static bool is_leading_symbol_character(char e)
+    {
+        return std::isalpha(e) || e == '_' || e == '-' || e == ':' || e == '@';
     }
 
     static bool is_number(const char* d)
     {
-        if (isdigit(*d))
+        if (std::isdigit(*d))
         {
             return true;
         }
         else if (*d == '.')
         {
-            return isdigit(d[1]);
+            return std::isdigit(d[1]);
         }
         else if (*d == '+' || *d == '-')
         {
-            return isdigit(d[1]) || (d[1] == '.' && isdigit(d[2]));
+            return std::isdigit(d[1]) || (d[1] == '.' && std::isdigit(d[2]));
         }
         return false;
     }
@@ -1507,7 +1506,7 @@ private:
             ++c;
         }
 
-        while (isdigit(*c) || *c == '.' || *c == 'e' || *c == 'E')
+        while (std::isdigit(*c) || *c == '.' || *c == 'e' || *c == 'E')
         {
             if (*c == 'e' || *c == 'E')
             {
@@ -1528,7 +1527,7 @@ private:
             ++c;
         }
 
-        if (! (isspace(*c) || *c == '\0' || *c == ')'))
+        if (! (std::isspace(*c) || *c == '\0' || *c == ')'))
         {
             throw parser_error("syntax error: bad numeric literal");
         }
@@ -1568,7 +1567,7 @@ private:
 
         ++c;
 
-        if (! (isspace(*c) || *c == '\0' || *c == ')'))
+        if (! (std::isspace(*c) || *c == '\0' || *c == ')'))
         {
             throw parser_error("syntax error: non-whitespace character following single-quoted string");
         }
@@ -1587,7 +1586,7 @@ private:
             {
                 throw parser_error("syntax error: unterminated expression");
             }
-            else if (isspace(*c) || *c == ')')
+            else if (std::isspace(*c) || *c == ')')
             {
                 ++c;
             }
@@ -1609,7 +1608,7 @@ private:
 
         while (*c != '\0')
         {
-            if (isspace(*c))
+            if (std::isspace(*c))
             {
                 ++c;
             }
@@ -1621,7 +1620,7 @@ private:
             {
                 return parse_number(c).keyed(kw);
             }
-            else if (isalpha(*c))
+            else if (is_leading_symbol_character(*c))
             {
                 return parse_symbol(c).keyed(kw);
             }
@@ -1635,7 +1634,7 @@ private:
             }
             else
             {
-                throw parser_error("syntax error: unkown character '" + std::string(c, c + 1) + "'");
+                throw parser_error("syntax error: unknown character '" + std::string(c, c + 1) + "'");
             }
         }
         return expression();
