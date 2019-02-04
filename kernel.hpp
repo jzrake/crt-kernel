@@ -1423,7 +1423,7 @@ public:
         {
             parts.push_back(parse_part(c));
         }
-        return parts;
+        return parts.size() == 1 ? parts.front() : parts;
     }
 
 
