@@ -140,12 +140,12 @@ public:
     /**
      * Return the raw data members themselves.
      */
-    auto get_i32()  const { return vali32; }
-    auto get_f64()  const { return valf64; }
-    auto get_str()  const { return valstr; }
-    auto get_sym()  const { return valsym; }
-    auto get_func() const { return valfunc; }
-    auto get_data() const { return valdata; }
+    const auto& get_i32()  const { return vali32; }
+    const auto& get_f64()  const { return valf64; }
+    const auto& get_str()  const { return valstr; }
+    const auto& get_sym()  const { return valsym; }
+    const auto& get_func() const { return valfunc; }
+    const auto& get_data() const { return valdata; }
     auto key()                 const { return keyword; }
     auto dtype()               const { return type; }
     auto has_type(data_type t) const { return type == t; }
