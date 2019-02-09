@@ -733,6 +733,33 @@ public:
 
 
     /**
+     * This method implements an operation like 'merge-key' in YAML (the <<:
+     * operator). Any of this expression's parts with the specified key are
+     * flattened in-place.
+     */
+    expression merge_key(const std::string& key) const
+    {
+        std::vector<expression> result;
+
+        for (const auto& part : parts)
+        {
+            if (part.key() == key)
+            {
+                for (const auto& sub : part)
+                {
+                    result.push_back(sub);
+                }
+            }
+            else
+            {
+                result.push_back(part);
+            }
+        }
+        return result;
+    }
+
+
+    /**
      * Test for equality between two expressions. Equality means exact
      * equivalence of type and value. Functions are always unequal, even to
      * themselves.
