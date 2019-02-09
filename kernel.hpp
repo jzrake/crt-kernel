@@ -187,6 +187,16 @@ public:
     }
 
 
+    expression part(std::size_t index) const
+    {
+        if (index >= 0 && index < parts.size())
+        {
+            return parts[index];
+        }
+        return {};
+    }
+
+
     /**
      * If this is a table, return the unkeyed part at the given index
      * (equivalent to e.items()[index], except that it returns none if
@@ -469,7 +479,7 @@ public:
      * Convenience method to return a default value for this expression, if it
      * evaluates empty.
      */
-    expression otherwise (const expression& e) const
+    expression otherwise(const expression& e) const
     {
         return ! empty() ? *this : e;
     }
@@ -716,7 +726,10 @@ public:
     {
         switch (type)
         {
-            case data_type::symbol   : return valsym == symbol ? e.keyed(keyword) : *this;
+            case data_type::symbol:
+            {
+                return valsym == symbol ? e.keyed(keyword) : *this;
+            }
             case data_type::table:
             {
                 std::vector<expression> result;
@@ -729,6 +742,63 @@ public:
             }
             default: return *this;
         }
+    }
+
+
+    /**
+     * Replace all parts having the specified key, with the given expression.
+     * That expression's key is disregarded. Does not recurse.
+     */
+    expression with_attr(const std::string& key, const crt::expression& e) const
+    {
+        auto result = *this;
+
+        for (auto& part : result.parts)
+        {
+            if (part.keyword == key)
+            {
+                part = e.keyed(key);
+            }
+        }
+        return result;
+    }
+
+
+    /**
+     * Replace the part at the given index with a new expression. This method
+     * is not called with_item, because the index is linear in the raw
+     * container of parts, not the 'i-th' unkeyed part.
+     */
+    expression with_part(int index, const crt::expression& e) const
+    {
+        auto result = *this;
+
+        if (index >= 0 && index < result.parts.size())
+        {
+            result.parts[index] = e;
+        }
+        return result;
+    }
+
+
+    /**
+     * A generalization of the with_attr and with_part methods. The address
+     * expression is interpreted as a sequence of either attribute keys or
+     * part indexes. Keys in the address are disregarded.
+     */
+    expression with(const expression& address, const expression& e) const
+    {
+        auto front = address.first();
+
+        if (front.has_type(data_type::str))
+        {
+            return with_attr(front, attr(front.get_str()).with(address.rest(), e));
+        }
+        if (front.has_type(data_type::i32))
+        {
+            return with_part(front, part(front.get_i32()).with(address.rest(), e));
+        }
+        return e;
     }
 
 
@@ -1943,4 +2013,35 @@ TEST_CASE("kernel marks affected nodes correctly", "[kernel]")
         }
     }
 }
+
+
+
+
+TEST_CASE("expression::with works correctly", "[expression]")
+{
+    SECTION("with_part and with_attr work correctly")
+    {
+        expression e = {1, 2, 3, 4, expression(10).keyed("ten")};
+        REQUIRE(e.with_part(0, 5).part(0).get_i32() == 5);
+        REQUIRE(e.with_attr("ten", "9+1").attr("ten").get_str() == "9+1");
+        REQUIRE(e.with_attr("nine", "9") == e);
+    }
+    SECTION("with on a flat expression works correctly")
+    {
+        expression e = {10, 20};
+        expression f = {expression(10).keyed("ten"), expression(20).keyed("twenty")};
+        REQUIRE(e.with({0}, 50) == expression {50, 20});
+        REQUIRE(e.with({1}, 50) == expression {10, 50});
+        REQUIRE(f.with({"ten"}, "9+1").attr("ten").get_str() == "9+1");
+        REQUIRE(f.with({"twenty"}, "18+2").attr("twenty").get_str() == "18+2");
+    }
+    SECTION("with on a nested expression works correctly")
+    {
+        expression e = {{10, 20}, {30, 40}};
+        REQUIRE(e.with({0, 0}, 50) == expression {{50, 20}, {30, 40}});
+        REQUIRE(e.with({1, 1}, 50) == expression {{10, 20}, {30, 50}});
+        REQUIRE(e.with({2, 2}, 50) == e);
+    }
+}
+
 #endif
