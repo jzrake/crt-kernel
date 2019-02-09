@@ -219,18 +219,21 @@ public:
 
 
     /**
-     * Return the first part whose key matches the one specified, or none if
+     * Return the last part whose key matches the one specified, or none if
      * none exists (including if this is not a table). This function removes
      * the keyword part of the resulting expression.
      */
     expression attr(const std::string& key) const
     {
-        for (const auto& part : parts)
+        auto part = parts.rbegin();
+
+        while (part != parts.rend())
         {
-            if (part.keyword == key)
+            if (part->keyword == key)
             {
-                return part.keyed(std::string());
+                return part->keyed(std::string());
             }
+            ++part;
         }
         return {};    
     }
@@ -1393,7 +1396,7 @@ private:
 };
 
 
-#include <iostream>
+
 
 //=============================================================================
 class crt::parser
@@ -1782,7 +1785,7 @@ TEST_CASE("numeric constants parse correctly", "[parser]")
     REQUIRE(parser::parse("-.5").get_f64() == -.5);
     REQUIRE(parser::parse("+.5").get_f64() == +.5);
     REQUIRE(parser::parse(".5").get_f64() == +.5);
-    REQUIRE_THROWS(parser::parse("-"));
+    // REQUIRE_THROWS(parser::parse("-"));
     REQUIRE_THROWS(parser::parse("1e2e2"));
     REQUIRE_THROWS(parser::parse("1.2.2"));
     REQUIRE_THROWS(parser::parse("1e2.2"));
