@@ -803,6 +803,26 @@ public:
 
 
     /**
+     * Return a nested item, using the given expression as a sequence of keys
+     * or indexes.
+     */
+    expression address(const expression& address) const
+    {
+        auto front = address.first();
+
+        if (front.has_type(data_type::str))
+        {
+            return attr(front.get_str()).address(address.rest());
+        }
+        if (front.has_type(data_type::i32))
+        {
+            return part(front.get_i32()).address(address.rest());
+        }
+        return *this;
+    }
+
+
+    /**
      * This method implements an operation like 'merge-key' in YAML (the <<:
      * operator). Any of this expression's parts with the specified key are
      * flattened in-place.
@@ -2041,6 +2061,8 @@ TEST_CASE("expression::with works correctly", "[expression]")
         REQUIRE(e.with({0, 0}, 50) == expression {{50, 20}, {30, 40}});
         REQUIRE(e.with({1, 1}, 50) == expression {{10, 20}, {30, 50}});
         REQUIRE(e.with({2, 2}, 50) == e);
+        REQUIRE(e.address({0, 0}).get_i32() == 10);
+        REQUIRE(e.address({1, 1}).get_i32() == 40);
     }
 }
 
