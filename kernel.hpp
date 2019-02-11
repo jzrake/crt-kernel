@@ -379,13 +379,47 @@ public:
 
 
     /**
-     * Return an expression built from the parts of this one and the parts of
-     * the one specified.
+     * Return an expression built from the parts of this one and the parts of the
+     * one specified.
      */
     expression concat(const expression& more) const
     {
         auto result = parts;
         result.insert(result.end(), more.begin(), more.end());
+        return result;
+    }
+
+
+    /**
+     * Return an expression built from the parts of this, appending the additional
+     * part provided.
+     */
+    expression append(const expression& e) const
+    {
+        auto result = parts;
+        result.push_back(e);
+        return result;
+    }
+
+
+    expression drop_last(const expression& e) const
+    {
+        auto result = parts;
+        auto it = result.end();
+
+        while (it-- != result.begin())
+            if (*it == e)
+                break;
+
+        result.erase(it);
+        return result;
+    }
+
+
+    expression drop_all(const expression& e) const
+    {
+        auto result = parts;
+        result.erase(std::remove(result.begin(), result.end(), e), result.end());
         return result;
     }
 
@@ -824,16 +858,30 @@ public:
 
     /**
      * This method implements an operation like 'merge-key' in YAML (the <<:
-     * operator). Any of this expression's parts with the specified key are
-     * flattened in-place.
+     * operator). The the key is a string, then any of this expression's parts
+     * with that key flattened in-place. Of key is a table, then any of this
+     * expression's parts whose key is in the table are flattened.
      */
-    expression merge_key(const std::string& key) const
+    expression merge_key(const crt::expression& key) const
     {
         std::vector<expression> result;
+        std::unordered_set<std::string> keys;
+
+        if (key.has_type(crt::data_type::table))
+        {
+            for (const auto& part : key)
+            {
+                keys.insert(part.get_str());
+            }
+        }
+        else
+        {
+            keys.insert(key.get_str());
+        }
 
         for (const auto& part : parts)
         {
-            if (part.key() == key)
+            if (keys.count(part.keyword))
             {
                 for (const auto& sub : part)
                 {
@@ -2064,6 +2112,17 @@ TEST_CASE("expression::with works correctly", "[expression]")
         REQUIRE(e.address({0, 0}).get_i32() == 10);
         REQUIRE(e.address({1, 1}).get_i32() == 40);
     }
+}
+
+
+
+
+TEST_CASE("expression::drop_last and drop_all work correctly", "[expression]")
+{
+    expression e = {2, 1, 2, 1, expression(2).keyed("two")};
+    REQUIRE(e.drop_all(2) == crt::expression({1, 1, expression(2).keyed("two")}));
+    REQUIRE(e.drop_last(2) == crt::expression({2, 1, 1, expression(2).keyed("two")}));
+    REQUIRE(e.drop_last(expression(2).keyed("two")) == crt::expression({2, 1, 2, 1}));
 }
 
 #endif

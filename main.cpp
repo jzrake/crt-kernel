@@ -171,7 +171,7 @@ crt::expression crt::core::map(const crt::expression& e)
 
 crt::expression crt::core::merge_key(const crt::expression& e)
 {
-    return e.second().merge_key(e.first());
+    return e.rest().merge_key(e.first());
 }
 
 crt::expression crt::core::first(const crt::expression& e)
