@@ -2,14 +2,14 @@ CXXFLAGS = -std=c++14 -Wall
 
 default: test main
 
-main.o: kernel.hpp
+main.o: crt-expr.hpp crt-core.hpp
 
-test.o: kernel.hpp
+test.o: crt-expr.hpp
 
 test: test.o catch.o
 	$(CXX) -o $@ $(CXXFLAGS) $^
 
-main: main.o
+main: main.o crt-core.o
 	$(CXX) -o $@ $(CXXFLAGS) $^
 
 clean:
