@@ -16,11 +16,7 @@ An `expression` is a sum-type having one of the following types:
 - `function`
 - `table`
 
-There is an intentional similarity to Lua in the above scheme, and indeed tables in `crt` function mostly the same as Lua tables. Also, `data` is like a Lua user data. Functions are mappings from one expression to another, and may either be C++ lambdas, or be defined in the language using the following syntax:
-```
-my-func: (do-something-with @1 @2 @kwarg1 @kwarg2)
-```
-This function is now callable as in `(my-func arg1 arg2 kwarg1='a' kwarg2='b')`.
+There is an intentional similarity to Lua in the above scheme, and indeed tables in `crt` function mostly the same as Lua tables. Also, `data` is like a Lua user data. Functions are mappings from one expression to another and are defined as C++ lambdas, `std::function<expression(expression)>`.
 
 The real power of the `crt` language derives from the `symbol` primitive type. Expressions containing symbols can be resolved by a `scope` to another expression. This may be done incrementally to resolve an expression through a hierarchy of scopes to obtain a concrete value.
 
