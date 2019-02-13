@@ -32,6 +32,7 @@ namespace crt {
         expression type      (const expression& e);
         expression eval      (const expression& e);
         expression func      (const expression& e);
+        expression with      (const expression& e);
         expression unparse   (const expression& e);
 
         void import(crt::kernel& k);

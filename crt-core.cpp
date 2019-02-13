@@ -31,6 +31,7 @@ void crt::core::import(crt::kernel& k)
     k.define("table",     table);
     k.define("type",      type);
     k.define("unparse",   unparse);
+    k.define("with",      with);
     k.define("zip",       zip);
 }
 
@@ -113,6 +114,11 @@ crt::expression crt::core::range(const crt::expression& e)
             result.push_back(n);
 
     return result;
+}
+
+crt::expression crt::core::with(const crt::expression& e)
+{
+    return e.first().substitute_in(e.rest());
 }
 
 crt::expression crt::core::func(const crt::expression& e)

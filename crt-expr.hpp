@@ -780,6 +780,50 @@ public:
 
 
     /**
+     * Replace all expression *values* equaling the first one given with the
+     * second. Recurse if this is a table (table values are not tested to see
+     * if they match). The key part of both parameters is disregarded, and the
+     * key of the swapped values is kept as this one, e.g.
+     *
+     *          (a=1 b=2).substitute(1, 2) -> (a=2 b=2)
+     *
+     */
+    expression substitute(const crt::expression& value, const crt::expression& newValue) const
+    {
+        switch (type)
+        {
+            case data_type::table:
+            {
+                std::vector<expression> result;
+
+                for (const auto& part : parts)
+                {
+                    result.push_back(part.substitute(value, newValue));
+                }
+                return result;
+            }
+            default: return has_same_value(value) ? newValue.keyed(keyword) : *this;
+        }
+    }
+
+
+    /**
+     * Call substitute on each of the key-values pairs in the given
+     * expression.
+     */
+    expression substitute_in(const crt::expression& lookup) const
+    {
+        auto result = *this;
+
+        for (const auto& part : lookup)
+        {
+            result = result.substitute(part.keyword, part);
+        }
+        return result;
+    }
+
+
+    /**
      * Replace all parts having the specified key, with the given expression.
      * That expression's key is disregarded. Does not recurse.
      */
@@ -858,51 +902,67 @@ public:
 
     /**
      * This method implements an operation like 'merge-key' in YAML (the <<:
-     * operator). The the key is a string, then any of this expression's parts
-     * with that key flattened in-place. Of key is a table, then any of this
-     * expression's parts whose key is in the table are flattened.
+     * operator). It merges into this expression any descendant parts whose
+     * ancestors all have one of the named keys. Non-table parts are returned
+     * unchanged.
+     *
+     *       (1 b=(2 b=(3) c=(4))).merge_key(b) -> (1 2 3)
+     *
+     */
+    expression merge_key(const std::unordered_set<std::string>& keys) const
+    {
+        if (type == data_type::table)
+        {
+            std::vector<expression> result;
+    
+            for (const auto& part : parts)
+            {
+                if (keys.count(part.keyword))
+                {
+                    for (const auto& sub : part.merge_key(keys))
+                    {
+                        result.push_back(sub);
+                    }
+                }
+                else
+                {
+                    result.push_back(part);
+                }
+            }
+            return expression(result).keyed(keyword);
+        }
+        return *this;
+    }
+
+
+    /**
+     * Convenience method. If key is a string, then that single key is merged.
+     * Otherwise if key is a table, then its parts are converted to strings
+     * and included as merge keys.
      */
     expression merge_key(const crt::expression& key) const
     {
-        std::vector<expression> result;
         std::unordered_set<std::string> keys;
 
         if (key.has_type(crt::data_type::table))
         {
             for (const auto& part : key)
             {
-                keys.insert(part.get_str());
+                keys.insert(part.as_str());
             }
         }
         else
         {
             keys.insert(key.get_str());
         }
-
-        for (const auto& part : parts)
-        {
-            if (keys.count(part.keyword))
-            {
-                for (const auto& sub : part)
-                {
-                    result.push_back(sub);
-                }
-            }
-            else
-            {
-                result.push_back(part);
-            }
-        }
-        return result;
+        return merge_key(keys);
     }
 
 
     /**
-     * Test for equality between two expressions. Equality means exact
-     * equivalence of type and value. Functions are always unequal, even to
-     * themselves.
+     * Test for equivalence of only the type and value.
      */
-    bool operator==(const expression& other) const
+    bool has_same_value(const crt::expression& other) const
     {
         return
         type       != data_type::function && // no equality testing for function types
@@ -913,8 +973,18 @@ public:
         valstr  == other.valstr  &&
         valsym  == other.valsym  &&
         valdata == other.valdata &&
-        keyword == other.keyword &&
         parts   == other.parts;
+    }
+
+
+    /**
+     * Test for equality between two expressions. Equality means exact
+     * equivalence of key, type, and value. Functions are always unequal, even
+     * to themselves.
+     */
+    bool operator==(const expression& other) const
+    {
+        return has_same_value(other) && keyword == other.keyword;
     }
 
 
