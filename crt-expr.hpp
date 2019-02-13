@@ -402,6 +402,9 @@ public:
     }
 
 
+    /**
+     * Return an expression with the last instance of the given value removed.
+     */
     expression drop_last(const expression& e) const
     {
         auto result = parts;
@@ -416,6 +419,9 @@ public:
     }
 
 
+    /**
+     * Return an expression with all instances of the given value removed.
+     */
     expression drop_all(const expression& e) const
     {
         auto result = parts;
@@ -956,6 +962,44 @@ public:
             keys.insert(key.get_str());
         }
         return merge_key(keys);
+    }
+
+
+    /**
+     * A variation of the merge-key operation, where the keys to be merged are
+     * loaded from the table attribute with the given key. This method recurses
+     * through the parts being merged. Parts not being merged are not recursed.
+     */
+    expression merge_keys_in(const std::string& attribute) const
+    {
+        std::unordered_set<std::string> keys;
+
+        for (const auto& part : attr(attribute))
+        {
+            keys.insert(part.as_str());
+        }
+
+        if (type == data_type::table)
+        {
+            std::vector<expression> result;
+        
+            for (const auto& part : parts)
+            {
+                if (keys.count(part.keyword))
+                {
+                    for (const auto& sub : part.merge_keys_in(attribute))
+                    {
+                        result.push_back(sub);
+                    }
+                }
+                else
+                {
+                    result.push_back(part);
+                }
+            }
+            return expression(result).keyed(keyword);
+        }
+        return *this;
     }
 
 
