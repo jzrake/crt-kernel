@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-
+#include <iostream>
 
 
 //=============================================================================
@@ -967,16 +967,24 @@ public:
 
     /**
      * A variation of the merge-key operation, where the keys to be merged are
-     * loaded from the table attribute with the given key. This method recurses
-     * through the parts being merged. Parts not being merged are not recursed.
+     * loaded from the table attribute with the given key. This method
+     * recurses in a peculiar manner. Those immediate descendants not being
+     * merged are called recursively just as this one is. However the ones
+     * that are being merged are called recursively, but inheriting the merge
+     * keys of their parents. This behavior sounds complex, but it's what we
+     * want for many use cases.
      */
-    expression merge_keys_in(const std::string& attribute) const
+    expression merge_keys_in(const std::string& attribute, std::unordered_set<std::string> keys={}) const
     {
-        std::unordered_set<std::string> keys;
-
-        for (const auto& part : attr(attribute))
+        for (const auto& part : parts)
         {
-            keys.insert(part.as_str());
+            if (part.keyword == attribute)
+            {
+                for (const auto& subpart : part)
+                {
+                    keys.insert(subpart.as_str());
+                }
+            }
         }
 
         if (type == data_type::table)
@@ -987,14 +995,14 @@ public:
             {
                 if (keys.count(part.keyword))
                 {
-                    for (const auto& sub : part.merge_keys_in(attribute))
+                    for (const auto& sub : part.merge_keys_in(attribute, keys))
                     {
                         result.push_back(sub);
                     }
                 }
                 else
                 {
-                    result.push_back(part);
+                    result.push_back(part.merge_keys_in(attribute));
                 }
             }
             return expression(result).keyed(keyword);
@@ -2237,6 +2245,81 @@ TEST_CASE("expression::drop_last and drop_all work correctly", "[expression]")
     REQUIRE(e.drop_all(2) == crt::expression({1, 1, expression(2).keyed("two")}));
     REQUIRE(e.drop_last(2) == crt::expression({2, 1, 1, expression(2).keyed("two")}));
     REQUIRE(e.drop_last(expression(2).keyed("two")) == crt::expression({2, 1, 2, 1}));
+}
+
+
+
+
+TEST_CASE("expression::merge_keys_in works correctly", "[expression]")
+{
+    SECTION("Flat expressions work correctly")
+    {
+        expression e = {
+            expression({"A", "B"}).keyed("__classes__"),
+            expression(1),
+            expression(2),
+            expression({3, 4}).keyed("A"),
+            expression({5, 6}).keyed("B"),
+            expression({7, 8}).keyed("C"),
+        };
+        REQUIRE(e.merge_keys_in("__classes__").item(0) == expression(1));
+        REQUIRE(e.merge_keys_in("__classes__").item(1) == expression(2));
+        REQUIRE(e.merge_keys_in("__classes__").item(2) == expression(3));
+        REQUIRE(e.merge_keys_in("__classes__").item(3) == expression(4));
+        REQUIRE(e.merge_keys_in("__classes__").item(4) == expression(5));
+        REQUIRE(e.merge_keys_in("__classes__").item(5) == expression(6));
+        REQUIRE(e.merge_keys_in("__classes__").item(6).empty());
+        REQUIRE(e.merge_keys_in("__classes__").item(7).empty());
+    }
+    SECTION("Nested expressions work correctly")
+    {
+        expression part1 = {
+            expression({"A", "B"}).keyed("__classes__"),
+            expression(1),
+            expression(2),
+            expression({3, 4}).keyed("A"),
+            expression({5, 6}).keyed("B"),
+            expression({7, 8}).keyed("C"),
+        };
+        expression part2 = {
+            expression({"A", "B"}).keyed("__classes__"),
+            expression(1),
+            expression(2),
+            expression({3, 4}).keyed("A"),
+            expression({5, 6}).keyed("B"),
+            expression({7, 8}).keyed("C"),
+        };
+        expression e = {part1, part2};
+
+        REQUIRE(e.merge_keys_in("__classes__").item(0).item(0) == expression(1));
+        REQUIRE(e.merge_keys_in("__classes__").item(0).item(1) == expression(2));
+        REQUIRE(e.merge_keys_in("__classes__").item(0).item(2) == expression(3));
+        REQUIRE(e.merge_keys_in("__classes__").item(0).item(3) == expression(4));
+        REQUIRE(e.merge_keys_in("__classes__").item(0).item(4) == expression(5));
+        REQUIRE(e.merge_keys_in("__classes__").item(0).item(5) == expression(6));
+        REQUIRE(e.merge_keys_in("__classes__").item(0).item(6).empty());
+        REQUIRE(e.merge_keys_in("__classes__").item(0).item(7).empty());
+        REQUIRE(e.merge_keys_in("__classes__").item(1).item(0) == expression(1));
+        REQUIRE(e.merge_keys_in("__classes__").item(1).item(1) == expression(2));
+        REQUIRE(e.merge_keys_in("__classes__").item(1).item(2) == expression(3));
+        REQUIRE(e.merge_keys_in("__classes__").item(1).item(3) == expression(4));
+        REQUIRE(e.merge_keys_in("__classes__").item(1).item(4) == expression(5));
+        REQUIRE(e.merge_keys_in("__classes__").item(1).item(5) == expression(6));
+        REQUIRE(e.merge_keys_in("__classes__").item(1).item(6).empty());
+        REQUIRE(e.merge_keys_in("__classes__").item(1).item(7).empty());
+    }
+    SECTION("nested expressions with different classes work correctly")
+    {
+        expression e = parse("(__classes__=('A' 'B') 1 2 A=(__classes__=('A') 3 4) B=(__classes__=('A') 5 6))");
+        REQUIRE(e.merge_keys_in("__classes__").item(0) == expression(1));
+        REQUIRE(e.merge_keys_in("__classes__").item(1) == expression(2));
+        REQUIRE(e.merge_keys_in("__classes__").item(2) == expression(3));
+        REQUIRE(e.merge_keys_in("__classes__").item(3) == expression(4));
+        REQUIRE(e.merge_keys_in("__classes__").item(4) == expression(5));
+        REQUIRE(e.merge_keys_in("__classes__").item(5) == expression(6));
+        REQUIRE(e.merge_keys_in("__classes__").item(6).empty());
+        REQUIRE(e.merge_keys_in("__classes__").item(7).empty());
+    }
 }
 
 #endif
