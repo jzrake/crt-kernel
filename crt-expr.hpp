@@ -370,11 +370,7 @@ public:
 
     expression toggle() const
     {
-        switch (type)
-        {
-            case data_type::none: return 1;
-            default: return {};
-        }
+        return as_boolean() ? none() : expression(1);
     }
 
 
