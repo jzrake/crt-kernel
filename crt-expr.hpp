@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include <iostream>
+
 
 
 //=============================================================================
@@ -303,9 +303,9 @@ public:
      *          ((a b c) (1 2 3)) -> ((a 1) (b 2) (b 3)) .
      *
      * If this expression is not a table, then an empty expression is
-     * returned. If any of its parts is not a table, that value is broadcast
-     * to a list, duplicating its scalar value. The size of the result has the
-     * size of the smallest part that is a table.
+     * returned. If any of its parts is not a table, or is a table with length 1,
+     * that value is broadcast, duplicating the single value. The size result has
+     * the size of the smallest part that is a table of length > 1.
      */
     expression zip() const
     {
@@ -313,7 +313,7 @@ public:
 
         for (const auto& part : parts)
         {
-            if (part.has_type(data_type::table))
+            if (part.size() > 1)
             {
                 if (len == 0 || len > part.size())
                 {
@@ -330,9 +330,13 @@ public:
 
             for (const auto& part : parts)
             {
-                if (part.has_type(data_type::table))
+                if (part.size() > 1)
                 {
                     result[n].parts.push_back(part.parts[n].keyed(part.keyword));
+                }
+                else if (part.size() == 1)
+                {
+                    result[n].parts.push_back(part.first());
                 }
                 else
                 {
@@ -340,7 +344,7 @@ public:
                 }
             }
         }
-        return result;
+        return expression(result).keyed(keyword);
     }
 
 
@@ -737,7 +741,7 @@ public:
         {
             case data_type::symbol:
             {
-                return {expression::symbol(valsym == from ? to : valsym).keyed(keyword)};
+                return expression::symbol(valsym == from ? to : valsym).keyed(keyword);
             }
             case data_type::table:
             {
@@ -747,7 +751,7 @@ public:
                 {
                     result.push_back(part.relabel(from, to));
                 }
-                return result;
+                return expression(result).keyed(keyword);
             }
             default: return *this;
         }
@@ -774,7 +778,7 @@ public:
                 {
                     result.push_back(part.replace(symbol, e));
                 }
-                return result;
+                return expression(result).keyed(keyword);
             }
             default: return *this;
         }
@@ -802,7 +806,7 @@ public:
                 {
                     result.push_back(part.substitute(value, newValue));
                 }
-                return result;
+                return expression(result).keyed(keyword);
             }
             default: return has_same_value(value) ? newValue.keyed(keyword) : *this;
         }

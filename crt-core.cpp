@@ -12,7 +12,9 @@ void crt::core::import(crt::kernel& k)
     k.define("dict",      dict);
     k.define("eval",      eval);
     k.define("first",     first);
+    k.define("eq",        eq);
     k.define("func",      func);
+    k.define("index",     index);
     k.define("item",      item);
     k.define("join",      join);
     k.define("last",      last);
@@ -21,6 +23,7 @@ void crt::core::import(crt::kernel& k)
     k.define("map",       map);
     k.define("merge-key", merge_key);
     k.define("nest",      nest);
+    k.define("ne",        ne);
     k.define("range",     range);
     k.define("rest",      rest);
     k.define("reverse",   reverse);
@@ -140,7 +143,7 @@ crt::expression crt::core::func(const crt::expression& e)
     {
         auto result = localized;
 
-        for (auto var : locals)
+        for (const auto& var : locals)
         {
             if (var.empty())
             {
@@ -215,6 +218,29 @@ crt::expression crt::core::map(const crt::expression& e)
 crt::expression crt::core::merge_key(const crt::expression& e)
 {
     return e.rest().merge_key(e.first());
+}
+
+crt::expression crt::core::eq(const crt::expression& e)
+{
+    return e.first() == e.second();
+}
+
+crt::expression crt::core::ne(const crt::expression& e)
+{
+    return e.first() != e.second();
+}
+
+crt::expression crt::core::index(const crt::expression& e)
+{
+    auto container = e.first();
+    auto item = e.second();
+    auto it = std::find(container.begin(), container.end(), item);
+
+    if (it != container.end())
+    {
+        return int(it - container.begin());
+    }
+    return {};
 }
 
 crt::expression crt::core::first(const crt::expression& e)
