@@ -8,6 +8,7 @@ void crt::core::import(crt::kernel& k)
 {
     k.define("apply",     apply);
     k.define("attr",      attr);
+    k.define("call",      call);
     k.define("concat",    concat);
     k.define("dict",      dict);
     k.define("eval",      eval);
@@ -122,6 +123,17 @@ crt::expression crt::core::range(const crt::expression& e)
 crt::expression crt::core::with(const crt::expression& e)
 {
     return e.first().substitute_in(e.rest());
+}
+
+crt::expression crt::core::call(const crt::expression& e)
+{
+    auto scope = std::unordered_map<std::string, expression>();
+
+    for (const auto& part : e.rest())
+    {
+        scope[part.key()] = part;
+    }
+    return e.first().resolve(scope, call_adapter());
 }
 
 crt::expression crt::core::func(const crt::expression& e)

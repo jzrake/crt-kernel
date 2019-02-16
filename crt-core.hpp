@@ -10,6 +10,7 @@ namespace crt {
 
         expression apply     (const expression& e);
         expression attr      (const expression& e);
+        expression call      (const expression& e);
         expression concat    (const expression& e);
         expression dict      (const expression& e);
         expression eval      (const expression& e);

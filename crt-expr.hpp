@@ -723,7 +723,6 @@ public:
                 catch (const std::out_of_range& e)
                 {
                     return *this;
-                    // throw std::runtime_error("unresolved symbol: " + valsym);
                 }
             }
             default: return *this;
