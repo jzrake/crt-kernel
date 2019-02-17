@@ -15,11 +15,15 @@ void crt::core::import(crt::kernel& k)
     k.define("first",     first);
     k.define("eq",        eq);
     k.define("func",      func);
+    k.define("ge",        ge);
+    k.define("gt",        gt);
     k.define("index",     index);
     k.define("item",      item);
     k.define("join",      join);
     k.define("last",      last);
     k.define("len",       len);
+    k.define("le",        le);
+    k.define("lt",        lt);
     k.define("list",      list);
     k.define("map",       map);
     k.define("merge-key", merge_key);
@@ -240,6 +244,26 @@ crt::expression crt::core::eq(const crt::expression& e)
 crt::expression crt::core::ne(const crt::expression& e)
 {
     return e.first() != e.second();
+}
+
+crt::expression crt::core::gt(const crt::expression& e)
+{
+    return e.first() > e.second();
+}
+
+crt::expression crt::core::ge(const crt::expression& e)
+{
+    return e.first() >= e.second();
+}
+
+crt::expression crt::core::lt(const crt::expression& e)
+{
+    return e.first() < e.second();
+}
+
+crt::expression crt::core::le(const crt::expression& e)
+{
+    return e.first() <= e.second();
 }
 
 crt::expression crt::core::index(const crt::expression& e)

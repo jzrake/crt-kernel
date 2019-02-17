@@ -464,6 +464,48 @@ public:
     }
 
 
+    bool operator>(const expression& other) const
+    {
+        if (type == other.type)
+        {
+            switch (type)
+            {
+                case data_type::none     : return false;
+                case data_type::i32      : return vali32  > other.vali32;
+                case data_type::f64      : return valf64  > other.valf64;
+                case data_type::str      : return valstr  > other.valstr;
+                case data_type::symbol   : return valsym  > other.valsym;
+                case data_type::data     : return valdata > other.valdata;
+                case data_type::function : return false;
+                case data_type::table    :
+                {
+                    for (int n = 0; n < std::min(size(), other.size()); ++n)
+                    {
+                        if (parts[n] != other.parts[n])
+                        {
+                            return parts[n] > other.parts[n];
+                        }
+                    }
+                    return size() > other.size() && keyword > other.keyword;
+                }
+            }
+        }
+        return type > other.type;
+    }
+
+
+    bool operator<=(const expression& other) const
+    {
+        return *this < other || *this == other;
+    }
+
+
+    bool operator>=(const expression& other) const
+    {
+        return *this > other || *this == other;
+    }
+
+
     /**
      * Return a sorted version of this expression.
      */

@@ -17,11 +17,15 @@ namespace crt {
         expression eq        (const expression& e);
         expression first     (const expression& e);
         expression func      (const expression& e);
+        expression ge        (const expression& e);
+        expression gt        (const expression& e);
         expression index     (const expression& e);
         expression item      (const expression& e);
         expression join      (const expression& e);
         expression last      (const expression& e);
         expression len       (const expression& e);
+        expression le        (const expression& e);
+        expression lt        (const expression& e);
         expression list      (const expression& e);
         expression map       (const expression& e);
         expression merge     (const expression& e);
