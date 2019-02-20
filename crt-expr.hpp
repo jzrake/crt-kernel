@@ -1758,12 +1758,12 @@ private:
     //=========================================================================
     static bool is_symbol_character(char e)
     {
-        return std::isalnum(e) || e == '_' || e == '-' || e == ':' || e == '@';
+        return std::isalnum(e) || e == '_' || e == '-' || e == '+' || e == ':' || e == '@';
     }
 
     static bool is_leading_symbol_character(char e)
     {
-        return std::isalpha(e) || e == '_' || e == '-' || e == ':' || e == '@';
+        return std::isalpha(e) || e == '_' || e == '-' || e == '+' || e == ':' || e == '@';
     }
 
     static bool is_number(const char* d)
