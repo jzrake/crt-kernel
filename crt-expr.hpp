@@ -298,30 +298,34 @@ public:
 
 
     /**
-     * Returns this expression with its outermost two layers transposed:
+     * Return this expression with its outermost two layers transposed:
      * 
      *          ((a b c) (1 2 3)) -> ((a 1) (b 2) (b 3)) .
      *
      * If this expression is not a table, then an empty expression is
      * returned. If any of its parts is not a table, or is a table with length 1,
-     * that value is broadcast, duplicating the single value. The size result has
-     * the size of the smallest part that is a table of length > 1.
+     * that value is broadcast, duplicating the single value. The result has the
+     * size of the smallest part that is a table of length > 1, or if all parts
+     * are tables of length 1 then so is the result.
      */
     expression zip() const
     {
-        std::size_t len = 0;
+        std::size_t len = 1;
 
         for (const auto& part : parts)
         {
             if (part.size() > 1)
             {
-                if (len == 0 || len > part.size())
+                if (len == 1 || len > part.size())
                 {
                     len = part.size();
                 }
             }
+            if (part.empty())
+            {
+                return {};
+            }
         }
-
         std::vector<expression> result(len);
 
         for (std::size_t n = 0; n < len; ++n)
@@ -336,7 +340,7 @@ public:
                 }
                 else if (part.size() == 1)
                 {
-                    result[n].parts.push_back(part.first());
+                    result[n].parts.push_back(part.first().keyed(part.keyword));
                 }
                 else
                 {
@@ -773,7 +777,7 @@ public:
 
 
     /**
-     * Returns this expression with all of its symbols having the name `from`
+     * Return this expression with all of its symbols having the name `from`
      * renamed to `to`.
      */
     expression relabel(const std::string& from, const std::string& to) const
@@ -891,7 +895,7 @@ public:
 
     /**
      * Replace the part at the given index with a new expression. This method
-     * is not called with_item, because the index is linear in the raw
+     * is not named 'with_item', because the index is linear in the raw
      * container of parts, not the 'i-th' unkeyed part.
      */
     expression with_part(int index, const crt::expression& e) const
@@ -903,6 +907,41 @@ public:
             result.parts[index] = e;
         }
         return result;
+    }
+
+
+    /**
+     * Return an expression, with all parts having the given key removed.
+     */
+    expression without_attr(const std::string& key) const
+    {
+        auto result = std::vector<expression>();
+
+        for (const auto& part : parts)
+        {
+            if (part.keyword != key)
+            {
+                result.push_back(part);
+            }
+        }
+        return expression(result).keyed(keyword);
+    }
+
+
+    /**
+     * Return an expression with the part at the given index (keyed or
+     * unkeyed) removed. If the index is not in range, then this expression is
+     * returned.
+     */
+    expression without_part(int index) const
+    {
+        auto result = parts;
+
+        if (0 <= index && index < result.size())
+        {
+            result.erase(result.begin() + index);
+        }
+        return expression(result).keyed(keyword);
     }
 
 
@@ -924,6 +963,39 @@ public:
             return with_part(front, part(front.get_i32()).with(address.rest(), e));
         }
         return e;
+    }
+
+
+    /**
+     * Return this expression, with the item at the given address removed.
+     */
+    expression without(const expression& address) const
+    {
+        if (! has_type(data_type::table))
+        {
+            return *this;
+        }
+        if (address.size() <= 1)
+        {
+            auto front = address.first().otherwise(address);
+
+            if (front.has_type(data_type::str))
+            {
+                return without_attr(front.get_str());
+            }
+            if (front.has_type(data_type::i32))
+            {
+                return without_part(front.get_i32());
+            }            
+        }
+
+        auto result = parts;
+
+        for (auto& part : result)
+        {
+            part = part.without(address.rest());
+        }
+        return expression(result).keyed(keyword);
     }
 
 
@@ -2283,9 +2355,26 @@ TEST_CASE("expression::with works correctly", "[expression]")
 TEST_CASE("expression::drop_last and drop_all work correctly", "[expression]")
 {
     expression e = {2, 1, 2, 1, expression(2).keyed("two")};
-    REQUIRE(e.drop_all(2) == crt::expression({1, 1, expression(2).keyed("two")}));
-    REQUIRE(e.drop_last(2) == crt::expression({2, 1, 1, expression(2).keyed("two")}));
-    REQUIRE(e.drop_last(expression(2).keyed("two")) == crt::expression({2, 1, 2, 1}));
+    REQUIRE(e.drop_all(2) == expression({1, 1, expression(2).keyed("two")}));
+    REQUIRE(e.drop_last(2) == expression({2, 1, 1, expression(2).keyed("two")}));
+    REQUIRE(e.drop_last(expression(2).keyed("two")) == expression({2, 1, 2, 1}));
+}
+
+
+
+
+TEST_CASE("expression::without_part, without_attr, and without work correctly", "[expression]")
+{
+    expression e = {1, 2, 3, 4};
+    expression f = {1, 2, 3, expression(4).keyed("four")};
+    expression g = {1, 2, 3, expression({"a", "b", "c"}).keyed("four")};
+    REQUIRE(e.without_part(0) == expression({2, 3, 4}));
+    REQUIRE(e.without_part(1) == expression({1, 3, 4}));
+    REQUIRE(e.without_part(4) == e);
+    REQUIRE(f.without_attr("four") == expression({1, 2, 3}));
+    REQUIRE(g.without(expression{"four", 0}) == expression({1, 2, 3, expression({"b", "c"}).keyed("four")}));
+    REQUIRE(g.without(expression{"four", 1}) == expression({1, 2, 3, expression({"a", "c"}).keyed("four")}));
+    REQUIRE(g.without(expression{"four"}) == expression({1, 2, 3}));
 }
 
 
