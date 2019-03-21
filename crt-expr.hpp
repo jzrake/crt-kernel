@@ -1,6 +1,10 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <cstring>
+#include <memory>
+#include <algorithm>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -189,7 +193,7 @@ public:
 
     expression part(std::size_t index) const
     {
-        if (index >= 0 && index < parts.size())
+        if (index < parts.size())
         {
             return parts[index];
         }
@@ -453,7 +457,7 @@ public:
                 case data_type::function : return false;
                 case data_type::table    :
                 {
-                    for (int n = 0; n < std::min(size(), other.size()); ++n)
+      		    for (std::size_t n = 0; n < std::min(size(), other.size()); ++n)
                     {
                         if (parts[n] != other.parts[n])
                         {
@@ -483,7 +487,7 @@ public:
                 case data_type::function : return false;
                 case data_type::table    :
                 {
-                    for (int n = 0; n < std::min(size(), other.size()); ++n)
+        	    for (std::size_t n = 0; n < std::min(size(), other.size()); ++n)
                     {
                         if (parts[n] != other.parts[n])
                         {
@@ -615,6 +619,7 @@ public:
            case data_type::function : return valfunc != nullptr;
            case data_type::table    : return ! parts.empty();
        }
+       return false;
     }
 
 
@@ -668,6 +673,7 @@ public:
             case data_type::function : return "<func>";
             case data_type::table    : return unparse();
         }
+	return std::string();
     }
 
 
@@ -676,6 +682,7 @@ public:
     operator float()       const { return as_f64(); }
     operator double()      const { return as_f64(); }
     operator std::string() const { return as_str(); }
+    operator std::size_t() const { return as_i32(); }
 
 
     /**
@@ -708,6 +715,7 @@ public:
                 return pre + "(" + res.substr(1) + ")";
             }
         }
+	return std::string();
     }
 
 
@@ -741,6 +749,7 @@ public:
             case data_type::function:  return "function";
             case data_type::table:     return "table";
         }
+	return nullptr;
     };
 
 
@@ -898,11 +907,11 @@ public:
      * is not named 'with_item', because the index is linear in the raw
      * container of parts, not the 'i-th' unkeyed part.
      */
-    expression with_part(int index, const crt::expression& e) const
+    expression with_part(std::size_t index, const crt::expression& e) const
     {
         auto result = *this;
 
-        if (index >= 0 && index < result.parts.size())
+        if (index < result.parts.size())
         {
             result.parts[index] = e;
         }
@@ -933,11 +942,11 @@ public:
      * unkeyed) removed. If the index is not in range, then this expression is
      * returned.
      */
-    expression without_part(int index) const
+    expression without_part(std::size_t index) const
     {
         auto result = parts;
 
-        if (0 <= index && index < result.size())
+        if (index < result.size())
         {
             result.erase(result.begin() + index);
         }
@@ -960,7 +969,7 @@ public:
         }
         if (front.has_type(data_type::i32))
         {
-            return with_part(front, part(front.get_i32()).with(address.rest(), e));
+	    return with_part(front, part(front.get_i32()).with(address.rest(), e));
         }
         return e;
     }
