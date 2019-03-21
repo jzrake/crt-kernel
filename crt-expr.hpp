@@ -457,7 +457,7 @@ public:
                 case data_type::function : return false;
                 case data_type::table    :
                 {
-      		    for (std::size_t n = 0; n < std::min(size(), other.size()); ++n)
+                for (std::size_t n = 0; n < std::min(size(), other.size()); ++n)
                     {
                         if (parts[n] != other.parts[n])
                         {
@@ -487,7 +487,7 @@ public:
                 case data_type::function : return false;
                 case data_type::table    :
                 {
-        	    for (std::size_t n = 0; n < std::min(size(), other.size()); ++n)
+                for (std::size_t n = 0; n < std::min(size(), other.size()); ++n)
                     {
                         if (parts[n] != other.parts[n])
                         {
@@ -673,7 +673,7 @@ public:
             case data_type::function : return "<func>";
             case data_type::table    : return unparse();
         }
-	return std::string();
+    return std::string();
     }
 
 
@@ -715,7 +715,7 @@ public:
                 return pre + "(" + res.substr(1) + ")";
             }
         }
-	return std::string();
+    return std::string();
     }
 
 
@@ -749,7 +749,7 @@ public:
             case data_type::function:  return "function";
             case data_type::table:     return "table";
         }
-	return nullptr;
+    return nullptr;
     };
 
 
@@ -969,7 +969,7 @@ public:
         }
         if (front.has_type(data_type::i32))
         {
-	    return with_part(front, part(front.get_i32()).with(address.rest(), e));
+        return with_part(front, part(front.get_i32()).with(address.rest(), e));
         }
         return e;
     }
