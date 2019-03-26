@@ -2461,4 +2461,4 @@ TEST_CASE("expression::merge_keys_in works correctly", "[expression]")
     }
 }
 
-#endif
+#endif // TEST_KERNEL
