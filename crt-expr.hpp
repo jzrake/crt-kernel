@@ -50,7 +50,7 @@ namespace crt
     //=========================================================================
     template<typename T> struct capsule;
     template<typename T> struct type_info;
-    template<typename T> static std::shared_ptr<user_data> make_data(const T&);
+    template<typename T> static data_t make_data(const T&);
     template<typename T> static func_t init();
     static inline expression symbol(const std::string&);
     static inline expression parse(const std::string&);
@@ -936,7 +936,7 @@ private:
 /**
  * Return a symbol expression.
  */
-static crt::expression crt::symbol(const std::string& v)
+crt::expression crt::symbol(const std::string& v)
 {
     auto e = expression();
     e.type = data_type::symbol;
@@ -946,10 +946,11 @@ static crt::expression crt::symbol(const std::string& v)
 
 
 /**
- * Return a symbol expression.
+ * Create a user_data from the given value. You'll get a compile error if
+ * there is no class definition for crt::type_info<T>.
  */
 template<typename T>
-static std::shared_ptr<crt::user_data> crt::make_data(const T& v)
+crt::data_t crt::make_data(const T& v)
 {
     return std::dynamic_pointer_cast<user_data>(std::make_shared<capsule<T>>(v));
 }
