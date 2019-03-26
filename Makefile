@@ -10,7 +10,7 @@ test: test.o catch.o
 	$(CXX) -o $@ $(CXXFLAGS) $^
 
 main: main.o
-	$(CXX) -o $@ $(CXXFLAGS) $^
+	$(CXX) -o $@ $(CXXFLAGS) $^ -lcurses
 
 clean:
 	$(RM) *.o test main
