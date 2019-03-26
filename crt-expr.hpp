@@ -654,11 +654,17 @@ public:
             }
             case data_type::table:
             {
-                auto result = cont_t().transient();
+                auto result = parts.transient();
+                std::size_t n = 0;
 
                 for (const auto& part : parts)
                 {
-                    result.push_back(part->replace(symbol, e));
+                    if (part->has_type(data_type::symbol) ||
+                        part->has_type(data_type::table))
+                    {
+                        result.set(n, part->replace(symbol, e));
+                    }
+                    ++n;
                 }
                 return expression(result.persistent()).keyed(keyword);
             }
@@ -682,11 +688,16 @@ public:
         {
             case data_type::table:
             {
-                auto result = cont_t().transient();
+                auto result = parts.transient();
+                std::size_t n = 0;
 
                 for (const auto& part : parts)
                 {
-                    result.push_back(part->substitute(value, new_value));
+                    if (part->has_type(data_type::table))
+                    {
+                        result.set(n, part->substitute(value, new_value));
+                    }
+                    ++n;
                 }
                 return expression(result.persistent()).keyed(keyword);
             }
