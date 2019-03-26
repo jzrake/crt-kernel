@@ -33,8 +33,8 @@ namespace crt
 
         /**
          * Convert this user_data to an expression. The return value should
-         * probably be a table, but in principle anything other than another
-         * user_data is OK, including none. Returning a user_data here would
+         * probably be a table, but anything that's not a user_data of the
+         * same type is safe. Returning a user_data of the same type would
          * cause the unparse method to recurse forever.
          */
         virtual expression to_table() const = 0;
@@ -138,7 +138,7 @@ public:
     const auto& get_sym()      const { return valsym.get(); }
     const auto& get_func()     const { return valfunc; }
     const auto& get_data()     const { return valdata; }
-    auto key()                 const { return keyword; }
+    const auto& key()          const { return keyword.get(); }
     auto dtype()               const { return type; }
     auto has_type(data_type t) const { return type == t; }
     auto begin()               const { return parts.begin(); }
@@ -161,7 +161,7 @@ public:
     /**
      * Return a copy of this expression with a different key.
      */
-    expression keyed(const std::string& kw) const
+    expression keyed(immer::box<std::string> kw) const
     {
         auto e = *this;
         e.keyword = kw;
@@ -498,6 +498,18 @@ public:
 
 
     /**
+     * Return this expression as the sole element of a new table:
+     * 
+     *                   key=val -> (key=val) .
+     *
+     */
+    expression nest() const
+    {
+        return crt::expression({*this});
+    }
+
+
+    /**
      * If this is a table, return the unkeyed part at the given index
      * (equivalent to e.items()[index], except that it returns none if
      * out-of-bounds. This may be more or less efficient than first getting
@@ -596,8 +608,8 @@ public:
 
 
     /**
-     * Return this expression with all of its symbols having the name `from`
-     * renamed to `to`.
+     * Return this expression with all of its symbols (at any depth) having
+     * the name `from` renamed to `to`.
      */
     expression relabel(const std::string& from, const std::string& to) const
     {
@@ -609,11 +621,17 @@ public:
             }
             case data_type::table:
             {
-                auto result = cont_t().transient();
+                auto result = parts.transient();
+                std::size_t n = 0;
 
                 for (const auto& part : parts)
                 {
-                    result.push_back(part->relabel(from, to));
+                    if (part->has_type(data_type::symbol) ||
+                        part->has_type(data_type::table))
+                    {
+                        result.set(n, part->relabel(from, to));
+                    }
+                    ++n;
                 }
                 return expression(result.persistent()).keyed(keyword);
             }
@@ -694,8 +712,8 @@ public:
 
 
     /**
-     * Replace all parts having the specified key, with the given expression.
-     * That expression's key is disregarded. Does not recurse.
+     * Replace all parts having the specified key, with the value part of the
+     * given expression (its key is disregarded). Does not recurse.
      */
     expression with_attr(const std::string& key, const crt::expression& e) const
     {
@@ -706,7 +724,7 @@ public:
         {
             if (*part->keyword == key)
             {
-                result.set(n, e.keyed(key));
+                result.set(n, e.keyed(part->keyword));
             }
             ++n;
         }
@@ -908,38 +926,13 @@ private:
     crt::func_t             valfunc;
     cont_t                  parts;
     friend expression symbol(const std::string&);
+    friend class parser;
 };
 
 
 
 
 //=========================================================================
-template<typename T>
-static std::shared_ptr<crt::user_data> crt::make_data(const T& v)
-{
-    return std::dynamic_pointer_cast<user_data>(std::make_shared<capsule<T>>(v));
-}
-
-template<typename T>
-crt::func_t crt::init()
-{
-    return [] (const crt::expression& e) -> crt::expression
-    {
-        return crt::make_data(e.to<T>());
-    };
-}
-
-template<typename T>
-struct crt::capsule : public crt::user_data
-{
-    capsule() {}
-    capsule(const T& value) : value(value) {}
-    const char* type_name() const override { return type_info<T>::name(); }
-    expression to_table() const override { return type_info<T>::to_table(value); }
-    T value;
-};
-
-
 /**
  * Return a symbol expression.
  */
@@ -952,11 +945,340 @@ static crt::expression crt::symbol(const std::string& v)
 }
 
 
+/**
+ * Return a symbol expression.
+ */
+template<typename T>
+static std::shared_ptr<crt::user_data> crt::make_data(const T& v)
+{
+    return std::dynamic_pointer_cast<user_data>(std::make_shared<capsule<T>>(v));
+}
+
+
+/**
+ * Return a function expression that constructs a user_data of the given type.
+ * This is useful in concisely defining API's.
+ */
+template<typename T>
+crt::func_t crt::init()
+{
+    return [] (const crt::expression& e) -> crt::expression
+    {
+        return crt::make_data(e.to<T>());
+    };
+}
+
+
+/**
+ * Holder for user_data values. Client code probably does not need to use
+ * this.
+ */
+template<typename T>
+struct crt::capsule : public crt::user_data
+{
+    capsule() {}
+    capsule(const T& value) : value(value) {}
+    const char* type_name() const override { return type_info<T>::name(); }
+    expression to_table() const override { return type_info<T>::to_table(value); }
+    T value;
+};
+
+
+
+
+//=============================================================================
+/**
+ * This is a good general purpose call_adapter to be used with
+ * expression::resolve. You can write your own, of course!
+ */
+class crt::call_adapter
+{
+public:
+    template<typename Mapping>
+    crt::expression call(const Mapping& scope, const crt::expression& expr) const
+    {
+        auto head = expr.first().resolve(scope, *this);
+        auto args = cont_t().transient();
+
+        for (const auto& part : expr.rest())
+        {
+            args.push_back(part->resolve(scope, *this));
+        }
+
+        if (head.has_type(crt::data_type::function))
+        {
+            return head.call(args.persistent());
+        }
+        return head.nest().concat(args.persistent());
+    }
+};
+
+
+
+
+//=============================================================================
+class crt::parser
+{
+
+public:
+
+
+    //=========================================================================
+    static expression parse(const char* source)
+    {
+        if (std::strlen(source) > 0 && source[0] == '(')
+        {
+            return parse_part(source);
+        }
+
+        auto parts = cont_t().transient();
+        auto c = source;
+
+        while (*c != '\0')
+        {
+            parts.push_back(parse_part(c));
+        }
+        return parts.size() == 1 ? parts[0] : parts.persistent();
+    }
+
+
+private:
+
+
+    //=========================================================================
+    static bool is_symbol_character(char e)
+    {
+        return std::isalnum(e) || e == '_' || e == '-' || e == '+' || e == ':' || e == '@';
+    }
+
+    static bool is_leading_symbol_character(char e)
+    {
+        return std::isalpha(e) || e == '_' || e == '-' || e == '+' || e == ':' || e == '@';
+    }
+
+    static bool is_number(const char* d)
+    {
+        if (std::isdigit(*d))
+        {
+            return true;
+        }
+        else if (*d == '.')
+        {
+            return std::isdigit(d[1]);
+        }
+        else if (*d == '+' || *d == '-')
+        {
+            return std::isdigit(d[1]) || (d[1] == '.' && std::isdigit(d[2]));
+        }
+        return false;
+    }
+
+    static const char* get_named_part(const char*& c)
+    {
+        const char* cc = c;
+        const char* start = c;
+
+        while (is_symbol_character(*cc++))
+        {
+            if (*cc == '=')
+            {
+                c = cc + 1;
+                return start;
+            }
+        }
+        return nullptr;
+    }
+
+    static const char* find_closing_parentheses(const char* c)
+    {
+        int level = 0;
+        bool in_str = false;
+
+        do
+        {
+            if (*c == '\0')
+            {
+                throw parser_error("unterminated expression");
+            }
+            else if (in_str)
+            {
+                if (*c == '\'') in_str = false;
+            }
+            else
+            {
+                if (*c == '\'') in_str = true;
+                else if (*c == ')') --level;
+                else if (*c == '(') ++level;
+            }
+            ++c;
+        } while (level > 0);
+
+        return c;
+    }
+
+    static expression parse_number(const char*& c)
+    {
+        const char* start = c;
+        bool isdec = false;
+        bool isexp = false;
+
+        if (*c == '+' || *c == '-')
+        {
+            ++c;
+        }
+
+        while (std::isdigit(*c) || *c == '.' || *c == 'e' || *c == 'E')
+        {
+            if (*c == 'e' || *c == 'E')
+            {
+                if (isexp)
+                {
+                    throw parser_error("syntax error: bad numeric literal");
+                }
+                isexp = true;
+            }
+            if (*c == '.')
+            {
+                if (isdec || isexp)
+                {
+                    throw parser_error("syntax error: bad numeric literal");
+                }
+                isdec = true;
+            }
+            ++c;
+        }
+
+        if (! (std::isspace(*c) || *c == '\0' || *c == ')'))
+        {
+            throw parser_error("syntax error: bad numeric literal");
+        }
+        else if (isdec || isexp)
+        {
+            return expression(atof(std::string(start, c - start).data()));
+        }
+        else
+        {
+            return expression(atoi(std::string(start, c - start).data()));
+        }
+    }
+
+    static expression parse_symbol(const char*& c)
+    {
+        const char* start = c;
+
+        while (is_symbol_character(*c))
+        {
+            ++c;
+        }
+        return symbol(std::string(start, c));
+    }
+
+    static expression parse_single_quoted_string(const char*& c)
+    {
+        const char* start = c++;
+
+        while (*c != '\'')
+        {
+            if (*c == '\0')
+            {
+                throw parser_error("syntax error: unterminated string");
+            }
+            ++c;
+        }
+
+        ++c;
+
+        if (! (std::isspace(*c) || *c == '\0' || *c == ')'))
+        {
+            throw parser_error("syntax error: non-whitespace character following single-quoted string");
+        }
+        return expression(std::string(start + 1, c - 1));
+    }
+
+    static expression parse_expression(const char*& c)
+    {
+        auto e = cont_t().transient();
+        auto end = find_closing_parentheses(c);
+        ++c;
+
+        while (c != end)
+        {
+            if (*c == '\0')
+            {
+                throw parser_error("syntax error: unterminated expression");
+            }
+            else if (std::isspace(*c) || *c == ')')
+            {
+                ++c;
+            }
+            else
+            {
+                e.push_back(parse_part(c));
+            }
+        }
+        return e.persistent();
+    }
+
+    static expression parse_part(const char*& c)
+    {
+        std::string kw;
+
+        while (*c != '\0')
+        {
+            if (std::isspace(*c))
+            {
+                ++c;
+            }
+            else if (const char* kwstart = get_named_part(c))
+            {
+                kw = std::string(kwstart, c - 1);
+            }
+            else if (is_number(c))
+            {
+                return parse_number(c).keyed(kw);
+            }
+            else if (is_leading_symbol_character(*c))
+            {
+                return parse_symbol(c).keyed(kw);
+            }
+            else if (*c == '\'')
+            {
+                return parse_single_quoted_string(c).keyed(kw);
+            }
+            else if (*c == '(')
+            {
+                return parse_expression(c).keyed(kw);
+            }
+            else
+            {
+                throw parser_error("syntax error: unknown character '" + std::string(c, c + 1) + "'");
+            }
+        }
+        return expression();
+    }
+};
+
+
+
+
+//=============================================================================
+crt::expression crt::parse(const std::string& source)
+{
+    return parser::parse(source.data());
+}
+
+crt::expression crt::parse(const char* source)
+{
+    return parser::parse(source);
+}
+
+
 
 
 //=============================================================================
 #ifdef TEST_EXPRESSION
 #include "catch.hpp"
+#include "immer/map.hpp"
 using namespace crt;
 
 
@@ -1004,13 +1326,13 @@ TEST_CASE("nested expression can be constructed by hand", "[expression]")
 
 
 
-// TEST_CASE("expression can be converted to string", "[expression]")
-// {
-//     REQUIRE(expression().unparse() == "()");
-//     REQUIRE(expression({}).unparse() == "()");
-//     REQUIRE(expression({1, 2, 3}).unparse() == "(1 2 3)");
-//     REQUIRE(expression({1, 2, 3}).unparse() == "(1 2 3)");
-// }
+TEST_CASE("expression can be converted to string", "[expression]")
+{
+    REQUIRE(expression().unparse() == "()");
+    REQUIRE(expression({}).unparse() == "()");
+    REQUIRE(expression({1, 2, 3}).unparse() == "(1 2 3)");
+    REQUIRE(expression({1, 2, 3}).unparse() == "(1 2 3)");
+}
 
 
 
@@ -1058,5 +1380,136 @@ TEST_CASE("expression::with* methods correctly", "[expression]")
         REQUIRE(e.without({1, 1}).part(1).part(0).get_i32() == 30);
     }
 }
+
+
+
+
+TEST_CASE("expression::relabel works correctly", "[expression]")
+{
+    expression e = {symbol("a"), symbol("b"), symbol("c"), symbol("a")};
+    REQUIRE(e.relabel("a", "A").size() == e.size());
+    REQUIRE(e.relabel("a", "A").part(0).get_sym() == "A");
+    REQUIRE(e.relabel("a", "A").part(3).get_sym() == "A");
+    REQUIRE(e.relabel("b", "B").part(1).get_sym() == "B");
+    REQUIRE(e.relabel("c", "C").part(2).get_sym() == "C");
+}
+
+
+
+
+TEST_CASE("expression::resolve works correctly with the basic call adapter", "[expression]")
+{
+    SECTION("for simple symbol resolution")
+    {
+        auto e = expression{symbol("a"), symbol("b"), symbol("c"), symbol("a")};
+        auto f = expression{"A", "B", symbol("c"), "A"};
+        auto a = call_adapter();
+        auto s = immer::map<std::string, expression>()
+        .set("a", "A")
+        .set("b", "B");
+        REQUIRE(e.resolve(s, a) == f);
+    }
+    SECTION("for function evaluations")
+    {
+        auto e = expression{expression([] (auto e) { return int(e.first()) + int(e.second()); }),
+                            symbol("a"),
+                            symbol("b")};
+        auto f = expression{"A", "B", symbol("c"), "A"};
+        auto a = call_adapter();
+        auto s = immer::map<std::string, expression>()
+        .set("a", 1)
+        .set("b", 2);
+        REQUIRE(int(e.resolve(s, a)) == 3);
+    }
+}
+
+
+
+
+TEST_CASE("basic strings can be parsed into expressions", "[parser]")
+{
+    REQUIRE(parser::parse("a").dtype() == data_type::symbol);
+    REQUIRE(parser::parse("1").dtype() == data_type::i32);
+    REQUIRE(parser::parse("1.0").dtype() == data_type::f64);
+    REQUIRE(parser::parse("(a b c)").dtype() == data_type::table);
+    REQUIRE(parser::parse("(a b c)").size() == 3);
+    REQUIRE(parser::parse("(a b b c 1 2 'ant')").symbols().size() == 3);
+    REQUIRE(parser::parse("(1 2 3)") == expression{1, 2, 3});
+    REQUIRE(parser::parse("(1.0 2.0 3.0)") == expression{1.0, 2.0, 3.0});
+    REQUIRE(parser::parse("a=1").key() == "a");
+    REQUIRE(parser::parse("('cat' 'moose' 'dragon')") == expression{
+        std::string("cat"),
+        std::string("moose"),
+        std::string("dragon")});
+    REQUIRE_THROWS(parser::parse("1.2.0"));
+}
+
+
+
+
+TEST_CASE("numeric constants parse correctly", "[parser]")
+{
+    REQUIRE(parser::parse("12").get_i32() == 12);
+    REQUIRE(parser::parse("13").get_i32() == 13);
+    REQUIRE(parser::parse("+12").get_i32() == 12);
+    REQUIRE(parser::parse("-12").get_i32() ==-12);
+    REQUIRE(parser::parse("13.5").get_f64() == 13.5);
+    REQUIRE(parser::parse("+13.5").get_f64() == 13.5);
+    REQUIRE(parser::parse("-13.5").get_f64() ==-13.5);
+    REQUIRE(parser::parse("+13.5e2").get_f64() == 13.5e2);
+    REQUIRE(parser::parse("-13.5e2").get_f64() ==-13.5e2);
+    REQUIRE(parser::parse("+13e2").get_f64() == 13e2);
+    REQUIRE(parser::parse("-13e2").get_f64() ==-13e2);
+    REQUIRE(parser::parse("-.5").get_f64() == -.5);
+    REQUIRE(parser::parse("+.5").get_f64() == +.5);
+    REQUIRE(parser::parse(".5").get_f64() == +.5);
+    // REQUIRE_THROWS(parser::parse("-"));
+    REQUIRE_THROWS(parser::parse("1e2e2"));
+    REQUIRE_THROWS(parser::parse("1.2.2"));
+    REQUIRE_THROWS(parser::parse("1e2.2"));
+    REQUIRE_THROWS(parser::parse("13a"));
+}
+
+
+
+
+TEST_CASE("keyword expressions parse correctly", "[parser]")
+{
+    REQUIRE(parser::parse("a=1").dtype() == data_type::i32);
+    REQUIRE(parser::parse("a=1").key() == "a");
+    REQUIRE(parser::parse("cow='moo'").dtype() == data_type::str);
+    REQUIRE(parser::parse("cow='moo'").key() == "cow");
+    REQUIRE(parser::parse("deer=(0 1 2 3)").dtype() == data_type::table);
+    REQUIRE(parser::parse("deer=(0 1 2 3)").key() == "deer");
+    REQUIRE(parser::parse("deer=(0 1 2 3)").size() == 4);
+    REQUIRE(parser::parse("deer=(0 1 2 3)").at(0).get_i32() == 0);
+    REQUIRE(parser::parse("deer=(0 1 2 3)").at(1).get_i32() == 1);
+    REQUIRE(parser::parse("deer=(0 1 2 3)").at(2).get_i32() == 2);
+    REQUIRE(parser::parse("deer=(0 1 2 3)").at(3).get_i32() == 3);
+}
+
+
+
+
+TEST_CASE("more complex expressions parse correctly", "[parser]")
+{
+    REQUIRE(parser::parse("(0 1 2 3 (0 1 2 3))").unparse() == "(0 1 2 3 (0 1 2 3))");
+    REQUIRE(parser::parse("(a 1 2 3 (b 1 2 3 (c 1 2 3)))").unparse() == "(a 1 2 3 (b 1 2 3 (c 1 2 3)))");
+    REQUIRE(parser::parse("(a a a)").size() == 3);
+    REQUIRE(parser::parse("()").size() == 0);
+    REQUIRE(parser::parse("(a)").size() == 1);
+    REQUIRE(parser::parse("((a))").size() == 1);
+    REQUIRE(parser::parse("((a) a)").size() == 2);
+    REQUIRE(parser::parse("(a (a))").size() == 2);
+    REQUIRE(parser::parse("((a) a a)").size() == 3);
+    REQUIRE(parser::parse("(a (a) a)").size() == 3);
+    REQUIRE(parser::parse("(a a (a))").size() == 3);
+    REQUIRE(parser::parse("((a) a ('a') a (a))").size() == 5);
+    REQUIRE(parser::parse("(a '(a) (a) (a')").size() == 2);
+    REQUIRE(parser::parse("(a 'a) (a) (a)')").size() == 2);
+    REQUIRE_THROWS(parser::parse("(a 'a) (a) (a))"));
+}
+
+
 
 #endif // TEST_EXPRESSION
