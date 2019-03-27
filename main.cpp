@@ -2,6 +2,7 @@
 #include <curses.h>
 #include "immer/map.hpp"
 #include "crt-expr.hpp"
+#include "crt-context.hpp"
 
 
 
@@ -17,16 +18,7 @@
 #define PAIR_SELECTED_FOCUS 4
 #define COMPONENT_CONSOLE 0
 #define COMPONENT_LIST 1
-using kernel_t = immer::map<std::string, crt::expression>;
 
-
-
-
-//=============================================================================
-auto kernel_insert(kernel_t rules, kernel_t products, crt::expression rule)
-{
-    return std::make_pair(rules, products);
-}
 
 
 
@@ -34,14 +26,49 @@ auto kernel_insert(kernel_t rules, kernel_t products, crt::expression rule)
 //=============================================================================
 struct State
 {
+
+
+    //=========================================================================
+    static State load(std::string fname)
+    {
+        auto state = State();
+        auto ifs = std::ifstream(fname);
+        auto ser = std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+
+        for (auto e : crt::parse(ser))
+        {
+            if (! e->key().empty())
+            {
+                state.rules = std::move(state.rules).insert(e);
+            }
+        }
+        state.products = state.rules.resolve();
+        return state;
+    }
+
+    void dump(std::string fname) const
+    {
+        auto doc = crt::cont_t().transient();
+
+        for (const auto& item : rules)
+        {
+            doc.push_back(item.second.keyed(item.first));
+        }
+
+        auto outf = std::ofstream(fname);
+        outf << crt::expression(doc.persistent()).unparse();
+    }
+
+
+    //=========================================================================
     int cursor = 0;
     int selected_kernel_row = 0;
     int focus_component = 0;
     bool success = true;
     std::string text;
     std::string message;
-    kernel_t kernel;
-    kernel_t products;
+    crt::context rules;
+    crt::context products;
 };
 
 
@@ -102,6 +129,7 @@ struct Screen
         initscr();
         cbreak();
         noecho();
+        raw();
         mousemask(ALL_MOUSE_EVENTS, NULL);
         mouseinterval(0);
         getmaxyx(stdscr, lines, cols);
@@ -183,7 +211,7 @@ private:
 
         int row = 0;
 
-        for (const auto& item : state.kernel)
+        for (const auto& item : state.rules)
         {
             if (state.selected_kernel_row == row)
             {
@@ -200,10 +228,18 @@ private:
             wattroff(win, COLOR_PAIR(PAIR_SELECTED));
 
             wmove(win, row + 1, 24);
-            wprintw(win, "%s", item.second.unparse().data());
+            wprintw(win, "%s", item.second.keyed("").unparse().data());
 
-            wmove(win, row + 1, 40);
-            wprintw(win, "%s", item.second.resolve(state.kernel, crt::call_adapter()).unparse().data());
+            wmove(win, row + 1, 80);
+            // wprintw(win, "%s", item.second.resolve(state.rules, crt::call_adapter()).unparse().data());
+
+            try {
+                wprintw(win, "%s", state.products.at(item.first).keyed("").unparse().data());
+            }
+            catch (const std::out_of_range& e)
+            {
+                wprintw(win, "%s", "<not cached>");
+            }
 
             ++row;
         }
@@ -220,34 +256,32 @@ private:
 
 
 //=============================================================================
-std::tuple<kernel_t, std::string, std::string, bool>
-reduce_add_kernel_definition(kernel_t kernel, std::string entry)
+auto reduce_insert_rule(crt::context rules, crt::context products, std::string entry)
 {
     try {
         auto e = crt::parse(entry);
+        auto new_rules = rules.insert(e);
+        auto new_prods = products.erase(e.symbols());
+        auto new_entry = std::string();
+        auto message   = "inserted " + e.key();
+        auto success   = true;
 
         if (e.key().empty())
         {
             throw std::runtime_error("empty assignment!");
         }
-        return std::make_tuple(kernel.set(e.key(), e.keyed("")), "inserted " + e.key(), std::string(), true);
+        return std::make_tuple(new_rules, new_prods, new_entry, message, success);
     }
     catch (const std::exception& e)
     {
-        return std::make_tuple(kernel, e.what(), entry, false);
+        return std::make_tuple(rules, products, entry, std::string(e.what()), false);
     }
 }
 
-kernel_t reduce_erase_nth_entry(kernel_t kernel, int index)
+auto reduce_erase_nth_entry(crt::context rules, crt::context products, int index)
 {
-    for (const auto& item : kernel)
-    {
-        if (! index--)
-        {
-            return kernel.erase(item.first);
-        }
-    }
-    return kernel;
+    auto k = rules.nth_key(index);
+    return std::make_pair(rules.erase(k), products.erase(rules.referencing(k)));
 }
 
 
@@ -296,17 +330,20 @@ State reduce(State state, int action)
         }
         case KEY_DOWN:
         {
-            if (state.selected_kernel_row < state.kernel.size() - 1)
+            if (state.selected_kernel_row < state.rules.size() - 1)
                 state.selected_kernel_row++;
             break;
         }
         case KEY_RETURN:
         {
             std::tie(
-                state.kernel,
-                state.message,
+                state.rules,
+                state.products,
                 state.text,
-                state.success) = reduce_add_kernel_definition(state.kernel, state.text);
+                state.message,
+                state.success) = reduce_insert_rule(state.rules, state.products, state.text);
+
+            state.products = state.rules.resolve(state.products);
             state.cursor = state.text.size();
             break;
         }
@@ -314,15 +351,34 @@ State reduce(State state, int action)
         {
             if (state.focus_component == COMPONENT_LIST)
             {
-                state.kernel = reduce_erase_nth_entry(state.kernel, state.selected_kernel_row);
+                std::tie(
+                    state.rules,
+                    state.products) = reduce_erase_nth_entry(
+                    state.rules,
+                    state.products,
+                    state.selected_kernel_row);
 
-                if (state.selected_kernel_row > state.kernel.size() - 1)
+                state.products = state.rules.resolve(state.products);
+
+                if (state.selected_kernel_row > state.rules.size() - 1)
                     state.selected_kernel_row--;
             }
             else if (state.cursor > 0)
             {
-                state.text = state.text.substr(0, state.text.size() - 1);
+                const auto& t = state.text;
+                const auto& c = state.cursor;
+                state.text = t.substr(0, c - 1) + t.substr(c);
                 state.cursor--;
+            }
+            break;
+        }
+        case KEY_CONTROL('d'):
+        {
+            if (state.cursor < state.text.size())
+            {
+                const auto& t = state.text;
+                const auto& c = state.cursor;
+                state.text = t.substr(0, c) + t.substr(c + 1);
             }
             break;
         }
@@ -366,21 +422,14 @@ State reduce(State state, int action)
 int main()
 {
     auto screen = Screen();
-    auto state = State();
-    auto ifs = std::ifstream("out.crt");
-    auto ser = std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
-
-    for (auto e : crt::parse(ser))
-    {
-        state.kernel = state.kernel.set(e->key(), e->keyed(""));
-    }
+    auto state = State::load("out.crt");
 
     while (true)
     {
         screen.render(state);
         int c = screen.get_character();
 
-        if (c == KEY_CONTROL('d'))
+        if (c == KEY_CONTROL('c') || (c == KEY_CONTROL('d') && state.text.empty()))
         {
             break;
         }
@@ -392,17 +441,7 @@ int main()
         state.message = "last event: " + std::to_string(c);
         state = reduce(state, c);
     }
-
-    auto doc = crt::cont_t().transient();
-
-    for (const auto& item : state.kernel)
-    {
-        doc.push_back(item.second.keyed(item.first));
-    }
-
-    auto outf = std::fopen("out.crt", "w");
-    std::fprintf(outf, "%s\n", crt::expression(doc.persistent()).unparse().data());
-    std::fclose(outf);
+    state.dump("out.crt");
 
     return 0;
 }

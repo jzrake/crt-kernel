@@ -1,3 +1,4 @@
+#pragma once
 #include "immer/flex_vector.hpp"
 #include "immer/flex_vector_transient.hpp"
 #include "immer/set.hpp"
