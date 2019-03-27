@@ -91,8 +91,8 @@ public:
 
 
     /**
-     * Return the names of items in this context that match the specified
-     * key, or include it as a symbol.
+     * Return the names of items in this context that match the specified key,
+     * or include it as a symbol.
      */
     set_t referencing(std::string key) const
     {
@@ -131,8 +131,8 @@ public:
 
 
     /**
-     * Return a const reference to the expression at the given key, or
-     * throw std::out_of_range if it does not exist.
+     * Return a const reference to the expression at the given key, or throw
+     * std::out_of_range if it does not exist.
      */
     const crt::expression& at(std::string key) const
     {
@@ -141,11 +141,11 @@ public:
 
 
     /**
-     * Return the key at the given linear index. The items are not sorted,
-     * but if you are displaying this context somewhere using its internal
-     * ordering, this method will find the kay at the displayed index.
-     * Note the search is O(N) in the context size. Returns an empty
-     * string if the index is larger than or equal to the number of items.
+     * Return the key at the given linear index. The items are not sorted, but
+     * if you are displaying this context somewhere using its internal
+     * ordering, this method will find the kay at the displayed index. Note
+     * the search is O(N) in the context size. Returns an empty string if the
+     * index is larger than or equal to the number of items.
      */
     std::string nth_key(std::size_t index) const
     {
@@ -162,8 +162,8 @@ public:
 
     /**
      * Return a context containing the resolution of all the items in this
-     * one. If the key already exists in the given cache, that value is
-     * used rather than resolving it.
+     * one. If the key already exists in the given cache, that value is used
+     * rather than resolving it.
      */
     context resolve(context cache={})
     {
@@ -181,12 +181,12 @@ public:
                 }
                 else if (item.second.symbols().size() == 0)
                 {
-                    cache = cache.insert(item.second);
+                    cache = std::move(cache).insert(item.second);
                     ++num_resolved;
                 }
                 else if (cache.contains(item.second.symbols()))
                 {
-                    cache = cache.insert(item.second.resolve(cache, call_adapter()));
+                    cache = std::move(cache).insert(item.second.resolve(cache, call_adapter()));
                     ++num_resolved;
                 }
             }

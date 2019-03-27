@@ -231,7 +231,6 @@ private:
             wprintw(win, "%s", item.second.keyed("").unparse().data());
 
             wmove(win, row + 1, 80);
-            // wprintw(win, "%s", item.second.resolve(state.rules, crt::call_adapter()).unparse().data());
 
             try {
                 wprintw(win, "%s", state.products.at(item.first).keyed("").unparse().data());
