@@ -23,6 +23,15 @@ using kernel_t = immer::map<std::string, crt::expression>;
 
 
 //=============================================================================
+auto kernel_insert(kernel_t rules, kernel_t products, crt::expression rule)
+{
+    return std::make_pair(rules, products);
+}
+
+
+
+
+//=============================================================================
 struct State
 {
     int cursor = 0;
@@ -32,6 +41,7 @@ struct State
     std::string text;
     std::string message;
     kernel_t kernel;
+    kernel_t products;
 };
 
 
@@ -48,6 +58,16 @@ struct Screen
     ~Screen()
     {
         delete_windows();
+    }
+
+    Screen(Screen&& other)
+    {
+        consoleView = other.consoleView;
+        messageView = other.messageView;
+        kernelView  = other.kernelView;
+        other.consoleView = nullptr;
+        other.messageView = nullptr;
+        other.kernelView  = nullptr;
     }
 
     Screen(const Screen& other) = delete;
@@ -179,9 +199,11 @@ private:
             wattroff(win, COLOR_PAIR(PAIR_SELECTED_FOCUS));
             wattroff(win, COLOR_PAIR(PAIR_SELECTED));
 
-
             wmove(win, row + 1, 24);
             wprintw(win, "%s", item.second.unparse().data());
+
+            wmove(win, row + 1, 40);
+            wprintw(win, "%s", item.second.resolve(state.kernel, crt::call_adapter()).unparse().data());
 
             ++row;
         }
@@ -343,9 +365,8 @@ State reduce(State state, int action)
 //=============================================================================
 int main()
 {
-    Screen screen;
-    State state;
-
+    auto screen = Screen();
+    auto state = State();
     auto ifs = std::ifstream("out.crt");
     auto ser = std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
 
@@ -378,7 +399,6 @@ int main()
     {
         doc.push_back(item.second.keyed(item.first));
     }
-
 
     auto outf = std::fopen("out.crt", "w");
     std::fprintf(outf, "%s\n", crt::expression(doc.persistent()).unparse().data());
