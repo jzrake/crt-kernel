@@ -28,16 +28,16 @@
 struct Message
 {
     Message() {}
-    Message(std::string name, int value=-1) : name(name), value(value), empty(false) {}
+    Message(std::string name, crt::expression value=crt::expression())
+    : name(name), value(value) {}
 
     operator bool() const
     {
-        return ! empty;
+        return value;
     }
 
     std::string name;
-    int value = -1;
-    bool empty = true;
+    crt::expression value;
 };
 
 
@@ -50,24 +50,24 @@ public:
 
     void task_starting(int worker, std::string name) override
     {
-        // std::printf("task '%s' starting on worker %d\n", name.data(), worker);
+        char message[1024];
+        std::snprintf(message, 1024, "task '%s' starting on worker %d\n", name.data(), worker);
 
         std::lock_guard<std::mutex> lock(mutex);
-        messages.push({name});
+        messages.push({message});
     }
 
     void task_canceled(int worker, std::string name) override
     {
-        // std::printf("task '%s' canceled on worker %d\n", name.data(), worker);
+        char message[1024];
+        std::snprintf(message, 1024, "task '%s' canceled on worker %d\n", name.data(), worker);
 
         std::lock_guard<std::mutex> lock(mutex);
-        messages.push({name});
+        messages.push({message});
     }
 
     void task_finished(int worker, std::string name, crt::worker_pool::product_t result) override
     {
-        // std::printf("task '%s' completed on worker %d: %d\n", name.data(), worker, result);
-
         std::lock_guard<std::mutex> lock(mutex);
         messages.push({name, result});
     }
@@ -493,10 +493,11 @@ State reduce(State state, int action, crt::worker_pool& workers)
     return state;
 }
 
-State reduce(State state, Message message)
-{
-    return state;
-}
+// State reduce_insert_product(State state, std::string name, crt::expression product)
+// {
+//     state.products = state.products.insert(product.keyed(name));
+//     return state;
+// }
 
 
 
@@ -524,8 +525,15 @@ int main()
             {
                 while (auto message = messenger.next())
                 {
-                    state.message = "last message: " + message.name;
-                    state = reduce(state, message);
+                    if (message.value)
+                    {
+                        state.message = "async update: " + message.name;
+                        state.products = state.products.insert(message.value.keyed(message.name));
+                    }
+                    else
+                    {
+                        state.message = message.name;
+                    }
                 }
                 screen.render(state);
             }
@@ -540,7 +548,7 @@ int main()
         }
         else
         {
-            // state.message = "last event: " + std::to_string(c);
+            state.message = "last event: " + std::to_string(c);
             state = reduce(state, c, workers);
             screen.render(state);
         }

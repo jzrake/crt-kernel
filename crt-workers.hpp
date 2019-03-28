@@ -2,6 +2,7 @@
 #include <vector>
 #include <mutex>
 #include <thread>
+#include "crt-expr.hpp"
 
 
 
@@ -20,7 +21,7 @@ class crt::worker_pool
 public:
 
 
-    using product_t = int;
+    using product_t = crt::expression;
     using run_t = std::function<product_t(const std::atomic<bool>* status)>;
 
 

@@ -219,8 +219,8 @@ public:
                 {
                     auto task = [e=item.second, cache] (const auto*)
                     {
-                        e.resolve(cache, call_adapter());
-                        return 0;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                        return e.resolve(cache, call_adapter());
                     };
 
                     worker.enqueue(item.first, task);
