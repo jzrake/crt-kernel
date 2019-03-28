@@ -24,12 +24,15 @@ class crt::context
 public:
 
 
+    //=========================================================================
     using map_t = immer::map<std::string, crt::expression>;
     using set_t = immer::set<std::string>;
     using dag_t = immer::map<std::string, set_t>;
 
 
-    /** Factory method to load from a context from a source string. */
+    /**
+     * Factory method to load from a context from a source string.
+     */
     static context parse(std::string source)
     {
         auto c = context();
@@ -45,7 +48,9 @@ public:
     }
 
 
-    /** Default constructor */
+    /**
+     * Default constructor
+     */
     context() {}
 
 
@@ -55,6 +60,11 @@ public:
      */
     context insert(crt::expression e) const
     {
+        if (cyclic(e))
+        {
+            throw std::invalid_argument("would create dependency cycle");
+        }
+
         auto k = e.key();
 
         return {
@@ -151,6 +161,26 @@ public:
             }
         }
         return true;
+    }
+
+
+    /**
+     * Return true if addition of the given rule would create a dependency
+     * cycle in the graph. This checks for whether any of the expression's
+     * symbols are downstream of its key.
+     */
+    bool cyclic(expression e) const
+    {
+        auto dependents = referencing(e.key());
+
+        for (const auto& s : e.symbols())
+        {
+            if (dependents.count(s))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
 
@@ -306,10 +336,12 @@ public:
         return cache;
     }
 
+
 private:
-
-
-    /** @internal constructor */
+    //=========================================================================
+    /**
+     * Internal constructor
+     */
     context(map_t items, dag_t incoming, dag_t outgoing)
     : items(items)
     , incoming(incoming)
