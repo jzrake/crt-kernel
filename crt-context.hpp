@@ -16,7 +16,8 @@ namespace crt {
 //=============================================================================
 /**
  * This class extends an immutable map<std::string, crt::expression> with
- * methods to resolve expressions by treating itself as a scope.
+ * methods to resolve a set of expressions against one another. It also
+ * facilitates asynchronous update patterns for carrying out that resolution.
  */
 class crt::context
 {
@@ -25,14 +26,11 @@ public:
 
     using map_t = immer::map<std::string, crt::expression>;
     using set_t = immer::set<std::string>;
+    using dag_t = immer::map<std::string, set_t>;
 
 
     /** Default constructor */
     context() {}
-
-
-    /** Construct a context from a map of items. */
-    context(immer::map<std::string, crt::expression> items) : items(items) {}
 
 
     /**
@@ -41,7 +39,51 @@ public:
      */
     context insert(crt::expression e) const
     {
-        return items.set(e.key(), e);
+        return {
+            items.set(e.key(), e),
+            incoming.set(e.key(), e.symbols()),
+            outgoing.set(e.key(), get_outgoing(e.key())),
+        };
+    }
+
+
+    /**
+     * Return the incoming edges for the given rule. An empty set is returned
+     * if the key does not exist in the graph.
+     */
+    set_t get_incoming(const std::string& key) const
+    {
+        if (contains(key))
+        {
+            return incoming.at(key);
+        }
+        return {};
+    }
+
+
+    /**
+     * Return the outgoing edges for the given rule. Even if that rule does
+     * not exist in the graph, it may have outgoing edges if other rules in
+     * the graph name it as a dependency. If the rule does exist in the graph,
+     * this is a fast operation because outgoing edges are kept up-to-date.
+     */
+    set_t get_outgoing(const std::string& key) const
+    {
+        if (contains(key))
+        {
+            return outgoing.at(key);
+        }
+
+        set_t out;
+
+        for (const auto& item : items)
+        {
+            if (get_incoming(item.first).count(key))
+            {
+                out = std::move(out).insert(item.first);
+            }
+        }
+        return out;
     }
 
 
@@ -50,7 +92,11 @@ public:
      */
     context erase(std::string key) const
     {
-        return items.erase(key);
+        return {
+            items.erase(key),
+            incoming.erase(key),
+            remove_from(outgoing, key),
+        };
     }
 
 
@@ -59,7 +105,7 @@ public:
      */
     context erase(const set_t& keys) const
     {
-        auto result = items;
+        auto result = *this;
 
         for (auto key : keys)
         {
@@ -91,21 +137,21 @@ public:
 
 
     /**
-     * Return the names of items in this context that match the specified key,
-     * or include it as a symbol.
+     * Return the names of items in this context that reference (directly or
+     * indirectly) the given key.
      */
     set_t referencing(std::string key) const
     {
-        auto result = set_t().insert(key);
+        auto result = get_outgoing(key);
 
-        for (const auto& item : items)
+        for (const auto& k : get_outgoing(key))
         {
-            if (item.second.symbols().count(key))
+            for (const auto& m : referencing(k))
             {
-                result = std::move(result).insert(item.first);
+                result = std::move(result).insert(m);
             }
         }
-        return result;
+        return result.insert(key);
     }
 
 
@@ -195,6 +241,7 @@ public:
         return cache;
     }
 
+
     template<typename Worker>
     context resolve(Worker& worker, context cache={})
     {
@@ -219,7 +266,6 @@ public:
                 {
                     auto task = [e=item.second, cache] (const auto*)
                     {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(500));
                         return e.resolve(cache, call_adapter());
                     };
 
@@ -233,5 +279,77 @@ public:
     }
 
 private:
+
+    /** @internal constructor */
+    context(map_t items, dag_t incoming, dag_t outgoing)
+    : items(items)
+    , incoming(incoming)
+    , outgoing(outgoing)
+    {
+    }
+
+    static dag_t remove_from(const dag_t& items, std::string key)
+    {
+        auto result = items;
+
+        for (const auto& item : items)
+        {
+            result = std::move(result).set(item.first, result.at(item.first).erase(key));
+        }
+        return result;
+    }
+
     map_t items;
+    dag_t incoming;
+    dag_t outgoing;
 };
+
+
+
+
+//=============================================================================
+#ifdef TEST_CONTEXT
+#include "catch.hpp"
+using namespace crt;
+
+
+
+
+//=============================================================================
+TEST_CASE("context maintains DAG correctly", "[context]")
+{
+    SECTION("for a linear graph (A=B B=C)")
+    {
+        auto c = context()
+        .insert(symbol("B").keyed("A"))
+        .insert(symbol("C").keyed("B"));
+
+        REQUIRE(c.size() == 2);
+        REQUIRE(c.get_incoming("A") == context::set_t().insert("B"));
+        REQUIRE(c.get_incoming("B") == context::set_t().insert("C"));
+        REQUIRE(c.get_outgoing("B") == context::set_t().insert("A"));
+        REQUIRE(c.get_outgoing("C") == context::set_t().insert("B"));
+
+        REQUIRE(c.erase("A").get_incoming("A") == context::set_t());
+        REQUIRE(c.erase("B").get_incoming("A") == context::set_t().insert("B"));
+        REQUIRE(c.erase("B").get_outgoing("B") == context::set_t().insert("A"));
+
+        REQUIRE(c.referencing("C") == context::set_t().insert("A").insert("B").insert("C"));
+
+    }
+    SECTION("for a branching graph A=(B C)")
+    {
+        auto c = context().insert(expression({symbol("B"), symbol("C")}).keyed("A"));
+        REQUIRE(c.size() == 1);
+        REQUIRE(c.get_incoming("A") == context::set_t().insert("B").insert("C"));
+        REQUIRE(c.get_outgoing("B") == context::set_t().insert("A"));
+        REQUIRE(c.get_outgoing("C") == context::set_t().insert("A"));
+
+        REQUIRE(c.referencing("C") == context::set_t().insert("A").insert("C"));
+        REQUIRE(c.referencing("B") == context::set_t().insert("A").insert("B"));
+    }
+}
+
+
+
+#endif // TEST_CONTEXT

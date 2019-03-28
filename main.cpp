@@ -68,6 +68,7 @@ public:
 
     void task_finished(int worker, std::string name, crt::worker_pool::product_t result) override
     {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
         std::lock_guard<std::mutex> lock(mutex);
         messages.push({name, result});
     }
@@ -118,7 +119,6 @@ struct State
                 state.rules = std::move(state.rules).insert(e);
             }
         }
-        state.products = state.rules.resolve();
         return state;
     }
 
@@ -362,6 +362,108 @@ auto reduce_erase_nth_entry(crt::context rules, crt::context products, int index
 }
 
 
+State decrement_selected_row(State state)
+{
+    if (state.selected_kernel_row > 0)
+        state.selected_kernel_row--;
+    return state;
+}
+
+State increment_selected_row(State state)
+{
+    if (state.selected_kernel_row < state.rules.size() - 1)
+        state.selected_kernel_row++;
+    return state;
+}
+
+State decrement_text_cursor(State state)
+{
+    if (state.cursor > 0)
+        state.cursor--;
+    return state;
+}
+
+State increment_text_cursor(State state)
+{
+    if (state.cursor < state.text.size())
+        state.cursor++;
+    return state;
+}
+
+State remove_selected_rule(State state)
+{
+    auto s = state;
+    auto key = s.rules.nth_key(s.selected_kernel_row);
+
+    s.rules = state.rules.erase(key);
+    s.products = state.products.erase(state.rules.referencing(key));
+
+    return s;
+}
+
+State ensure_selected_rule_in_range(State state)
+{
+    if (state.selected_kernel_row >= state.rules.size())
+        state.selected_kernel_row = state.rules.size() - 1;
+    if (state.selected_kernel_row < 0)
+        state.selected_kernel_row = 0;
+    return state;
+}
+
+State delete_text_backward(State state)
+{
+    if (state.cursor > 0)
+    {
+        const auto& t = state.text;
+        const auto& c = state.cursor;
+        state.text = t.substr(0, c - 1) + t.substr(c);
+        state.cursor--;
+    }
+    return state;
+}
+
+State delete_text_forward(State state)
+{
+    if (state.cursor < state.text.size())
+    {
+        const auto& t = state.text;
+        const auto& c = state.cursor;
+        state.text = t.substr(0, c) + t.substr(c + 1);
+    }
+    return state;
+}
+
+State delete_text_to_end(State state)
+{
+    state.text = state.text.substr(0, state.cursor);
+    return state;
+}
+
+State append_char_to_entry(State state, char c)
+{
+    if (std::isalnum(c) || std::ispunct(c) || std::isspace(c))
+    {
+        state.text = state.text.substr(0, state.cursor)
+        + std::string(1, c)
+        + state.text.substr(state.cursor);
+        state.cursor++;
+    }
+    return state;
+}
+
+State cursor_to_start(State state)
+{
+    state.cursor = 0;
+    return state;
+}
+
+State cursor_to_end(State state)
+{
+    state.cursor = state.text.size();
+    return state;
+}
+
+
 
 
 //=============================================================================
@@ -372,7 +474,7 @@ State reduce(State state, int action, crt::worker_pool& workers)
     switch (action)
     {
         case KEY_MOUSE:
-        {
+
             if (getmouse(&event) == OK)
             {
                 char message[1024];
@@ -380,39 +482,27 @@ State reduce(State state, int action, crt::worker_pool& workers)
                 state.message = message;
                 state.success = true;
             }
-            break;
-        }
+            return state;
+
         case KEY_TAB:
-        {
             state.focus_component = (state.focus_component + 1) % 2;
-            break;
-        }
-        case KEY_LEFT:
-        {
-            if (state.cursor > 0)
-                state.cursor--;
-            break;
-        }
-        case KEY_RIGHT:
-        {
-            if (state.cursor < state.text.size())
-                state.cursor++;
-            break;
-        }
-        case KEY_UP:
-        {
-            if (state.selected_kernel_row > 0)
-                state.selected_kernel_row--;
-            break;
-        }
-        case KEY_DOWN:
-        {
-            if (state.selected_kernel_row < state.rules.size() - 1)
-                state.selected_kernel_row++;
-            break;
-        }
+            return state;
+
+        case KEY_LEFT:         return decrement_text_cursor (state);
+        case KEY_RIGHT:        return increment_text_cursor (state);
+        case KEY_UP:           return decrement_selected_row(state);
+        case KEY_DOWN:         return increment_selected_row(state);
+        case KEY_CONTROL('d'): return delete_text_backward  (state);
+        case KEY_CONTROL('k'): return delete_text_to_end    (state);
+        case KEY_CONTROL('a'): return cursor_to_start       (state);
+        case KEY_CONTROL('e'): return cursor_to_end         (state);
+
+        case KEY_DELETE:
+            return state.focus_component == COMPONENT_LIST
+            ? ensure_selected_rule_in_range(remove_selected_rule(state))
+            : delete_text_backward(state);
+
         case KEY_RETURN:
-        {
             std::tie(
                 state.rules,
                 state.products,
@@ -420,84 +510,21 @@ State reduce(State state, int action, crt::worker_pool& workers)
                 state.message,
                 state.success) = reduce_insert_rule(state.rules, state.products, state.text);
 
+#ifdef ASYNC
             state.products = state.rules.resolve(workers, state.products);
-            // state.products = state.rules.resolve(state.products);
+#else
+            state.products = state.rules.resolve(state.products);            
+#endif
             state.cursor = state.text.size();
-            break;
-        }
-        case KEY_DELETE:
-        {
-            if (state.focus_component == COMPONENT_LIST)
-            {
-                std::tie(
-                    state.rules,
-                    state.products) = reduce_erase_nth_entry(
-                    state.rules,
-                    state.products,
-                    state.selected_kernel_row);
+            return state;
 
-                state.products = state.rules.resolve(state.products);
-
-                if (state.selected_kernel_row > state.rules.size() - 1)
-                    state.selected_kernel_row--;
-            }
-            else if (state.cursor > 0)
-            {
-                const auto& t = state.text;
-                const auto& c = state.cursor;
-                state.text = t.substr(0, c - 1) + t.substr(c);
-                state.cursor--;
-            }
-            break;
-        }
-        case KEY_CONTROL('d'):
-        {
-            if (state.cursor < state.text.size())
-            {
-                const auto& t = state.text;
-                const auto& c = state.cursor;
-                state.text = t.substr(0, c) + t.substr(c + 1);
-            }
-            break;
-        }
-        case KEY_CONTROL('a'):
-        {
-            state.cursor = 0;
-            break;
-        }
-        case KEY_CONTROL('k'):
-        {
-            state.text = state.text.substr(0, state.cursor);
-            break;
-        }
-        case KEY_CONTROL('e'):
-        {
-            state.cursor = state.text.size();
-            break;
-        }
         default:
-        {
-            if (state.focus_component == COMPONENT_LIST)
-            {
-            }
-            else if (std::isalnum(action) || std::ispunct(action) || std::isspace(action))
-            {
-                state.text = state.text.substr(0, state.cursor)
-                + std::string(1, action)
-                + state.text.substr(state.cursor);
-                state.cursor++;
-            }
-            break;
-        }
+            return state.focus_component == COMPONENT_LIST
+            ? state
+            : append_char_to_entry(state, action);
     }
     return state;
 }
-
-// State reduce_insert_product(State state, std::string name, crt::expression product)
-// {
-//     state.products = state.products.insert(product.keyed(name));
-//     return state;
-// }
 
 
 
@@ -512,6 +539,11 @@ int main()
     auto state = State::load("out.crt");
 
 
+#ifdef ASYNC
+    state.products = state.rules.resolve(workers);
+#else
+    state.products = state.rules.resolve();
+#endif
     screen.render(state);
 
 
@@ -529,6 +561,8 @@ int main()
                     {
                         state.message = "async update: " + message.name;
                         state.products = state.products.insert(message.value.keyed(message.name));
+                        // state.products = state.rules.resolve(workers, state.products);
+                        state.products = state.rules.resolve(state.products);
                     }
                     else
                     {
