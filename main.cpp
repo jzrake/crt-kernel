@@ -1,8 +1,10 @@
 #include <fstream>
+#include <queue>
 #include <curses.h>
 #include "immer/map.hpp"
 #include "crt-expr.hpp"
 #include "crt-context.hpp"
+#include "crt-workers.hpp"
 
 
 
@@ -19,6 +21,80 @@
 #define COMPONENT_CONSOLE 0
 #define COMPONENT_LIST 1
 
+
+
+
+//=============================================================================
+struct Message
+{
+    Message() {}
+    Message(std::string name, int value=-1) : name(name), value(value), empty(false) {}
+
+    operator bool() const
+    {
+        return ! empty;
+    }
+
+    std::string name;
+    int value = -1;
+    bool empty = true;
+};
+
+
+
+
+//=============================================================================
+class MessageQueue : public crt::worker_pool::listener_t
+{
+public:
+
+    void task_starting(int worker, std::string name) override
+    {
+        // std::printf("task '%s' starting on worker %d\n", name.data(), worker);
+
+        std::lock_guard<std::mutex> lock(mutex);
+        messages.push({name});
+    }
+
+    void task_canceled(int worker, std::string name) override
+    {
+        // std::printf("task '%s' canceled on worker %d\n", name.data(), worker);
+
+        std::lock_guard<std::mutex> lock(mutex);
+        messages.push({name});
+    }
+
+    void task_finished(int worker, std::string name, crt::worker_pool::product_t result) override
+    {
+        // std::printf("task '%s' completed on worker %d: %d\n", name.data(), worker, result);
+
+        std::lock_guard<std::mutex> lock(mutex);
+        messages.push({name, result});
+    }
+
+    bool empty() const
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return messages.empty();
+    }
+
+    Message next()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+
+        if (messages.empty())
+        {
+            return Message();
+        }
+        auto message = messages.front();
+        messages.pop();
+        return message;
+    }
+
+private:
+    std::queue<Message> messages;
+    mutable std::mutex mutex;
+};
 
 
 
@@ -130,6 +206,7 @@ struct Screen
         cbreak();
         noecho();
         raw();
+
         mousemask(ALL_MOUSE_EVENTS, NULL);
         mouseinterval(0);
         getmaxyx(stdscr, lines, cols);
@@ -145,6 +222,7 @@ struct Screen
         messageView = derwin(stdscr, 3, cols, lines - 6, 0);
         kernelView  = derwin(stdscr, lines - 6, cols, 0, 0);
 
+        nodelay(consoleView, TRUE);
         keypad(consoleView, TRUE);
         render(lastState);
     }
@@ -260,7 +338,7 @@ auto reduce_insert_rule(crt::context rules, crt::context products, std::string e
     try {
         auto e = crt::parse(entry);
         auto new_rules = rules.insert(e);
-        auto new_prods = products.erase(e.symbols());
+        auto new_prods = products.erase(rules.referencing(e.key()));
         auto new_entry = std::string();
         auto message   = "inserted " + e.key();
         auto success   = true;
@@ -287,7 +365,7 @@ auto reduce_erase_nth_entry(crt::context rules, crt::context products, int index
 
 
 //=============================================================================
-State reduce(State state, int action)
+State reduce(State state, int action, crt::worker_pool& workers)
 {
     MEVENT event;
 
@@ -342,7 +420,8 @@ State reduce(State state, int action)
                 state.message,
                 state.success) = reduce_insert_rule(state.rules, state.products, state.text);
 
-            state.products = state.rules.resolve(state.products);
+            state.products = state.rules.resolve(workers, state.products);
+            // state.products = state.rules.resolve(state.products);
             state.cursor = state.text.size();
             break;
         }
@@ -414,31 +493,57 @@ State reduce(State state, int action)
     return state;
 }
 
+State reduce(State state, Message message)
+{
+    return state;
+}
+
 
 
 
 //=============================================================================
 int main()
 {
+    MessageQueue messenger;
+    crt::worker_pool workers(4, &messenger);
+
     auto screen = Screen();
     auto state = State::load("out.crt");
 
+
+    screen.render(state);
+
+
     while (true)
     {
-        screen.render(state);
         int c = screen.get_character();
 
-        if (c == KEY_CONTROL('c') || (c == KEY_CONTROL('d') && state.text.empty()))
+        if (c == ERR)
+        {
+            if (! messenger.empty())
+            {
+                while (auto message = messenger.next())
+                {
+                    state.message = "last message: " + message.name;
+                    state = reduce(state, message);
+                }
+                screen.render(state);
+            }
+        }
+        else if (c == 410 || c == -1 || c == KEY_CONTROL('r'))
+        {
+            screen.reset();
+        }
+        else if (c == KEY_CONTROL('c') || (c == KEY_CONTROL('d') && state.text.empty()))
         {
             break;
         }
-        if (c == 410 || c == -1 || c == KEY_CONTROL('r'))
+        else
         {
-            screen.reset();
-            continue;
+            // state.message = "last event: " + std::to_string(c);
+            state = reduce(state, c, workers);
+            screen.render(state);
         }
-        state.message = "last event: " + std::to_string(c);
-        state = reduce(state, c);
     }
     state.dump("out.crt");
 

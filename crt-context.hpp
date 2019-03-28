@@ -195,6 +195,43 @@ public:
         return cache;
     }
 
+    template<typename Worker>
+    context resolve(Worker& worker, context cache={})
+    {
+        int num_resolved;
+
+        do
+        {
+            num_resolved = 0;
+
+            for (const auto& item : items)
+            {
+                if (cache.contains(item.first))
+                {
+                    continue;
+                }
+                else if (item.second.symbols().size() == 0)
+                {
+                    cache = std::move(cache).insert(item.second);
+                    ++num_resolved;
+                }
+                else if (cache.contains(item.second.symbols()) && ! worker.is_submitted(item.first))
+                {
+                    auto task = [e=item.second, cache] (const auto*)
+                    {
+                        e.resolve(cache, call_adapter());
+                        return 0;
+                    };
+
+                    worker.enqueue(item.first, task);
+                    ++num_resolved;
+                }
+            }
+        } while (num_resolved > 0);
+
+        return cache;
+    }
+
 private:
     map_t items;
 };

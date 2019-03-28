@@ -1,3 +1,4 @@
+#pragma once
 #include <vector>
 #include <mutex>
 #include <thread>
@@ -58,22 +59,18 @@ public:
     ~worker_pool()
     {
         stop = true;
+        condition.notify_all();
 
         for (auto& thread : threads)
         {
             thread.join();
         }
-
-        printf("     shutting down. There are %lu tasks\n", pending_tasks.size());
     }
 
 
     void enqueue(std::string name, run_t task)
     {
-        if (is_running(name))
-        {
-            cancel(name);
-        }
+        cancel(name);
 
         std::lock_guard<std::mutex> lock(mutex);
         pending_tasks.push_back({name, task});
@@ -94,6 +91,12 @@ public:
         return named(name, pending_tasks) != pending_tasks.end();
     }
  
+
+    bool is_submitted(std::string name)
+    {
+        return is_running(name) || is_pending(name);
+    }
+
 
     void cancel(std::string name)
     {
@@ -202,46 +205,47 @@ private:
 
 
 //=============================================================================
-#include <cstdio>
+// #include <cstdio>
 
 
 
-class basic_listener : public crt::worker_pool::listener_t
-{
-public:
-    void task_starting(int worker, std::string name) override
-    {
-        std::printf("task '%s' starting on worker %d\n", name.data(), worker);
-    }
+// class basic_listener : public crt::worker_pool::listener_t
+// {
+// public:
 
-    void task_canceled(int worker, std::string name) override
-    {
-        std::printf("task '%s' canceled on worker %d\n", name.data(), worker);
-    }
+//     void task_starting(int worker, std::string name) override
+//     {
+//         std::printf("task '%s' starting on worker %d\n", name.data(), worker);
+//     }
 
-    void task_finished(int worker, std::string name, crt::worker_pool::product_t result) override
-    {
-        std::printf("task '%s' completed on worker %d: %d\n", name.data(), worker, result);
-    }
-};
+//     void task_canceled(int worker, std::string name) override
+//     {
+//         std::printf("task '%s' canceled on worker %d\n", name.data(), worker);
+//     }
+
+//     void task_finished(int worker, std::string name, crt::worker_pool::product_t result) override
+//     {
+//         std::printf("task '%s' completed on worker %d: %d\n", name.data(), worker, result);
+//     }
+// };
 
 
 
-int main()
-{
-    basic_listener listener;
-    crt::worker_pool workers(2, &listener);
+// int main()
+// {
+//     basic_listener listener;
+//     crt::worker_pool workers(2, &listener);
 
-    auto w = [] (int n) { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); return n; };
+//     auto w = [] (int n) { std::this_thread::sleep_for(std::chrono::milliseconds(1000)); return n; };
 
-    workers.enqueue("task 0", [w] (const auto*) { return w(0); });
-    workers.enqueue("task 1", [w] (const auto*) { return w(1); });
-    workers.enqueue("task 2", [w] (const auto*) { return w(2); });
-    workers.enqueue("task 3", [w] (const auto*) { return w(3); });
-    workers.enqueue("task 4", [w] (const auto*) { return w(4); });
-    workers.enqueue("task 5", [w] (const auto*) { return w(5); });
-    workers.enqueue("task 6", [w] (const auto*) { return w(6); });
-    workers.enqueue("task 7", [w] (const auto*) { return w(7); });
+//     workers.enqueue("task 0", [w] (const auto*) { return w(0); });
+//     workers.enqueue("task 1", [w] (const auto*) { return w(1); });
+//     workers.enqueue("task 2", [w] (const auto*) { return w(2); });
+//     workers.enqueue("task 3", [w] (const auto*) { return w(3); });
+//     workers.enqueue("task 4", [w] (const auto*) { return w(4); });
+//     workers.enqueue("task 5", [w] (const auto*) { return w(5); });
+//     workers.enqueue("task 6", [w] (const auto*) { return w(6); });
+//     workers.enqueue("task 7", [w] (const auto*) { return w(7); });
 
-    return 0;
-}
+//     return 0;
+// }
