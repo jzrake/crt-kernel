@@ -928,7 +928,7 @@ public:
 
 
 private:
-    data_type               type   = data_type::none;
+    data_type               type = data_type::none;
     immer::box<std::string> keyword;
     int                     vali32 = 0;
     double                  valf64 = 0.0;
@@ -997,9 +997,6 @@ struct crt::capsule : public crt::user_data
 };
 
 
-
-
-//=============================================================================
 /**
  * This is a good general purpose call_adapter to be used with
  * expression::resolve. You can write your own, of course!

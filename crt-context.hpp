@@ -29,6 +29,22 @@ public:
     using dag_t = immer::map<std::string, set_t>;
 
 
+    /** Factory method to load from a context from a source string. */
+    static context parse(std::string source)
+    {
+        auto c = context();
+
+        for (auto e : crt::parse(source))
+        {
+            if (! e->key().empty())
+            {
+                c = std::move(c).insert(e);
+            }
+        }
+        return c;
+    }
+
+
     /** Default constructor */
     context() {}
 
@@ -39,63 +55,25 @@ public:
      */
     context insert(crt::expression e) const
     {
+        auto k = e.key();
+
         return {
-            items.set(e.key(), e),
-            incoming.set(e.key(), e.symbols()),
-            outgoing.set(e.key(), get_outgoing(e.key())),
+            items.set(k, e),
+            incoming.set(k, e.symbols()),
+            add_through(remove_through(outgoing, get(k)), e).set(k, get_outgoing(k)),
         };
-    }
-
-
-    /**
-     * Return the incoming edges for the given rule. An empty set is returned
-     * if the key does not exist in the graph.
-     */
-    set_t get_incoming(const std::string& key) const
-    {
-        if (contains(key))
-        {
-            return incoming.at(key);
-        }
-        return {};
-    }
-
-
-    /**
-     * Return the outgoing edges for the given rule. Even if that rule does
-     * not exist in the graph, it may have outgoing edges if other rules in
-     * the graph name it as a dependency. If the rule does exist in the graph,
-     * this is a fast operation because outgoing edges are kept up-to-date.
-     */
-    set_t get_outgoing(const std::string& key) const
-    {
-        if (contains(key))
-        {
-            return outgoing.at(key);
-        }
-
-        set_t out;
-
-        for (const auto& item : items)
-        {
-            if (get_incoming(item.first).count(key))
-            {
-                out = std::move(out).insert(item.first);
-            }
-        }
-        return out;
     }
 
 
     /**
      * Erase the item with the given key, if it exists.
      */
-    context erase(std::string key) const
+    context erase(std::string k) const
     {
         return {
-            items.erase(key),
-            incoming.erase(key),
-            remove_from(outgoing, key),
+            items.erase(k),
+            incoming.erase(k),
+            remove_through(outgoing, get(k)).erase(k),
         };
     }
 
@@ -112,6 +90,46 @@ public:
             result = std::move(result).erase(key);
         }
         return result;
+    }
+
+
+    /**
+     * Return the incoming edges for the given rule. An empty set is returned
+     * if the key does not exist in the graph.
+     */
+    set_t get_incoming(std::string key) const
+    {
+        if (contains(key))
+        {
+            return incoming.at(key);
+        }
+        return {};
+    }
+
+
+    /**
+     * Return the outgoing edges for the given rule. Even if that rule does
+     * not exist in the graph, it may have outgoing edges if other rules in
+     * the graph name it as a dependency. If it does exist in the graph, this
+     * is a fast operation because the outgoing edges are kept up-to-date.
+     */
+    set_t get_outgoing(std::string key) const
+    {
+        if (contains(key))
+        {
+            return outgoing.at(key);
+        }
+
+        set_t out;
+
+        for (const auto& item : items)
+        {
+            if (get_incoming(item.first).count(key))
+            {
+                out = std::move(out).insert(item.first);
+            }
+        }
+        return out;
     }
 
 
@@ -180,16 +198,26 @@ public:
      * Return a const reference to the expression at the given key, or throw
      * std::out_of_range if it does not exist.
      */
-    const crt::expression& at(std::string key) const
+    const crt::expression& at(std::string k) const
     {
-        return items.at(key);
+        return items.at(k);
+    }
+
+
+    /**
+     * Return the expression at the given key if it exists, or an empty one
+     * with that key otherwise.
+     */
+    crt::expression get(std::string k) const
+    {
+        return items.count(k) ? items.at(k) : expression().keyed(k);
     }
 
 
     /**
      * Return the key at the given linear index. The items are not sorted, but
      * if you are displaying this context somewhere using its internal
-     * ordering, this method will find the kay at the displayed index. Note
+     * ordering, this method will find the key at the displayed index. Note
      * the search is O(N) in the context size. Returns an empty string if the
      * index is larger than or equal to the number of items.
      */
@@ -280,6 +308,7 @@ public:
 
 private:
 
+
     /** @internal constructor */
     context(map_t items, dag_t incoming, dag_t outgoing)
     : items(items)
@@ -288,16 +317,38 @@ private:
     {
     }
 
-    static dag_t remove_from(const dag_t& items, std::string key)
-    {
-        auto result = items;
 
-        for (const auto& item : items)
+    /**
+     * out[s] -= e.key for s in e.symbols
+     */
+    static dag_t remove_through(dag_t o, expression e)
+    {
+        for (const auto& s : e.symbols())
         {
-            result = std::move(result).set(item.first, result.at(item.first).erase(key));
+            if (o.count(s))
+            {
+                o = std::move(o).set(s, o.at(s).erase(e.key()));
+            }
         }
-        return result;
+        return o;
     }
+
+
+    /**
+     * out[s] += e.key for s in e.symbols
+     */
+    static dag_t add_through(dag_t o, expression e)
+    {
+        for (const auto& s : e.symbols())
+        {
+            if (o.count(s))
+            {
+                o = std::move(o).set(s, o.at(s).insert(e.key()));
+            }
+        }
+        return o;
+    }
+
 
     map_t items;
     dag_t incoming;
@@ -347,6 +398,18 @@ TEST_CASE("context maintains DAG correctly", "[context]")
 
         REQUIRE(c.referencing("C") == context::set_t().insert("A").insert("C"));
         REQUIRE(c.referencing("B") == context::set_t().insert("A").insert("B"));
+    }
+    SECTION("same behavior when loading from expression source")
+    {
+        auto c = context::parse("(D=E C=D B=C A=B)");
+        REQUIRE(c.get_incoming("A") == context::set_t().insert("B"));
+        REQUIRE(c.get_incoming("B") == context::set_t().insert("C"));
+        REQUIRE(c.get_incoming("C") == context::set_t().insert("D"));
+        REQUIRE(c.get_incoming("D") == context::set_t().insert("E"));
+        REQUIRE(c.get_outgoing("B") == context::set_t().insert("A"));
+        REQUIRE(c.get_outgoing("C") == context::set_t().insert("B"));
+        REQUIRE(c.get_outgoing("D") == context::set_t().insert("C"));
+        REQUIRE(c.get_outgoing("E") == context::set_t().insert("D"));
     }
 }
 

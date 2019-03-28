@@ -111,14 +111,7 @@ struct State
         auto state = State();
         auto ifs = std::ifstream(fname);
         auto ser = std::string(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
-
-        for (auto e : crt::parse(ser))
-        {
-            if (! e->key().empty())
-            {
-                state.rules = std::move(state.rules).insert(e);
-            }
-        }
+        state.rules = crt::context::parse(ser);
         return state;
     }
 
@@ -539,11 +532,13 @@ int main()
     auto state = State::load("out.crt");
 
 
-#ifdef ASYNC
+    #ifdef ASYNC
     state.products = state.rules.resolve(workers);
-#else
+    #else
     state.products = state.rules.resolve();
-#endif
+    #endif
+
+
     screen.render(state);
 
 
@@ -561,8 +556,12 @@ int main()
                     {
                         state.message = "async update: " + message.name;
                         state.products = state.products.insert(message.value.keyed(message.name));
-                        // state.products = state.rules.resolve(workers, state.products);
+
+                        #ifdef ASYNC
+                        state.products = state.rules.resolve(workers, state.products);
+                        #else
                         state.products = state.rules.resolve(state.products);
+                        #endif
                     }
                     else
                     {
