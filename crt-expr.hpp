@@ -95,7 +95,31 @@ public:
 
 
     /**
-     * Default constructor.
+     * Construct an expression from a pair of iterators.
+     */
+    template<typename IteratorType>
+    expression(IteratorType first, IteratorType second)
+    {
+        auto transient_parts = parts.transient();
+
+        while (first != second)
+        {
+            transient_parts.push_back(*first);
+            ++first;
+        }
+        parts = transient_parts.persistent();
+        type = parts.empty() ? data_type::none : data_type::table;
+    }
+
+
+    /**
+     * Initializer list constructor
+     */
+    expression(std::initializer_list<expression> i) : expression(i.begin(), i.end()) {}
+
+
+    /**
+     * Default constructor
      */
     expression()                          : type(data_type::none) {}
     expression(const none&)               : type(data_type::none) {}
@@ -109,27 +133,6 @@ public:
     expression(cont_t parts)              : parts(parts)
     {
         type = parts.empty() ? data_type::none : data_type::table;
-    }
-    expression(std::initializer_list<expression> initial_parts)
-    {
-        auto transient_parts = parts.transient();
-
-        for (const auto& part : initial_parts)
-        {
-            transient_parts.push_back(part);
-        }
-        parts = transient_parts.persistent();
-        type = parts.empty() ? data_type::none : data_type::table;
-    }
-
-
-    /**
-     * Construct an expression from a pair of iterators.
-     */
-    template<typename IteratorType>
-    expression(IteratorType first, IteratorType second)
-    : expression(cont_t(first, second))
-    {
     }
 
 

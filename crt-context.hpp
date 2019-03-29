@@ -54,6 +54,18 @@ public:
     context() {}
 
 
+    bool operator==(const context& other) const
+    {
+        return items == other.items;
+    }
+
+
+    bool operator!=(const context& other) const
+    {
+        return items != other.items;
+    }
+
+
     /**
      * Insert the given expression into the context, using its keyword as the
      * name.
@@ -265,6 +277,21 @@ public:
 
 
     /**
+     * Return an expression built from the items in this context.
+     */
+    expression expr() const
+    {
+        auto e = expression();
+
+        for (auto item : items)
+        {
+            e = e.append(item.second);
+        }
+        return e;
+    }
+
+
+    /**
      * Return a context containing the resolution of all the items in this
      * one. If the key already exists in the given cache, that value is used
      * rather than resolving it.
@@ -303,36 +330,25 @@ public:
     template<typename Worker>
     context resolve(Worker& worker, context cache={})
     {
-        int num_resolved;
-
-        do
+        for (const auto& item : items)
         {
-            num_resolved = 0;
-
-            for (const auto& item : items)
+            if (cache.contains(item.first))
             {
-                if (cache.contains(item.first))
-                {
-                    continue;
-                }
-                else if (item.second.symbols().size() == 0)
-                {
-                    cache = std::move(cache).insert(item.second);
-                    ++num_resolved;
-                }
-                else if (cache.contains(item.second.symbols()) && ! worker.is_submitted(item.first))
-                {
-                    auto task = [e=item.second, cache] (const auto*)
-                    {
-                        return e.resolve(cache, call_adapter());
-                    };
-
-                    worker.enqueue(item.first, task);
-                    ++num_resolved;
-                }
+                continue;
             }
-        } while (num_resolved > 0);
-
+            else if (item.second.symbols().size() == 0)
+            {
+                cache = std::move(cache).insert(item.second);
+            }
+            else if (cache.contains(item.second.symbols()))
+            {
+                auto task = [e=item.second, cache] (const auto*)
+                {
+                    return e.resolve(cache, call_adapter());
+                };
+                worker.enqueue(item.first, task); 
+            }
+        }
         return cache;
     }
 
