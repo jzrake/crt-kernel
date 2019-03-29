@@ -59,12 +59,21 @@ public:
 
     ~worker_pool()
     {
-        stop = true;
-        condition.notify_all();
+        stop_all();
+    }
 
-        for (auto& thread : threads)
+
+    void stop_all()
+    {
+        if (! stop)
         {
-            thread.join();
+            stop = true;
+            condition.notify_all();
+
+            for (auto& thread : threads)
+            {
+                thread.join();
+            }
         }
     }
 
@@ -81,14 +90,14 @@ public:
 
     bool is_running(std::string name)
     {
-        std::unique_lock<std::mutex> lock(mutex);
+        std::lock_guard<std::mutex> lock(mutex);
         return named(name, running_tasks) != running_tasks.end();
     }
 
 
     bool is_pending(std::string name)
     {
-        std::unique_lock<std::mutex> lock(mutex);
+        std::lock_guard<std::mutex> lock(mutex);
         return named(name, pending_tasks) != pending_tasks.end();
     }
  
@@ -101,15 +110,17 @@ public:
 
     void cancel(std::string name)
     {
-        if (is_running(name))
+        std::lock_guard<std::mutex> lock(mutex);
+        auto running = named(name, running_tasks);
+        auto pending = named(name, pending_tasks);
+
+        if (running != running_tasks.end())
         {
-            std::unique_lock<std::mutex> lock(mutex);
-            *named(name, running_tasks)->canceled = true;
+            *running->canceled = true;
         }
-        else if (is_pending(name))
+        else if (pending != pending_tasks.end())
         {
-            std::unique_lock<std::mutex> lock(mutex);
-            pending_tasks.erase(named(name, pending_tasks));
+            pending_tasks.erase(pending);
         }
     }
 
@@ -159,7 +170,7 @@ private:
      */
     void complete(std::string name, int id, product_t result)
     {
-        std::unique_lock<std::mutex> lock(mutex);
+        std::lock_guard<std::mutex> lock(mutex);
 
         auto task = named(name, running_tasks);
 

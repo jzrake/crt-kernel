@@ -67,7 +67,7 @@ public:
         std::snprintf(message, 1024, "task '%s' finished on worker %d: %s",
             name.data(), worker, result.unparse().data());
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
         std::lock_guard<std::mutex> lock(mutex);
         messages.push({Message::Type::TaskFinished, message, result});
     }
@@ -100,12 +100,12 @@ private:
 
 
 //=============================================================================
-int main()
+int resolve(std::string source)
 {
     MessageQueue messenger;
     crt::worker_pool workers(4, &messenger);
 
-    auto rules = crt::context::parse("(a=b b=c c=d d=e e=f f=g g=1)");
+    auto rules = crt::context::parse(source);
     auto products = rules.resolve(workers);
 
 
@@ -113,7 +113,7 @@ int main()
     {
         while (auto message = messenger.next())
         {
-            std::printf("%s\n", message.message.data());
+            // std::printf("%s\n", message.message.data());
 
             if (message.value)
             {
@@ -122,5 +122,19 @@ int main()
         }
     }
 
+    return 0;
+}
+
+
+
+
+//=============================================================================
+int main(int argc, const char* argv[])
+{
+    for (int n = 0; n < (argc > 1 ? std::atoi(argv[1]) : 1); ++n)
+    {
+        resolve("(a=b b=c c=d d=e e=f f=g g=h h=i i=j j=1)");
+        resolve("(a=(b c)    b=(d e) c=(f g)    d=(h i) e=(j k) f=(l m) g=(n o)    h=1 i=2 j=3 k=4 l=5 m=6 n=7 o=8)");
+    }
     return 0;
 }
