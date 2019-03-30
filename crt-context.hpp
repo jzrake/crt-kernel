@@ -252,7 +252,7 @@ public:
      */
     crt::expression get(std::string k) const
     {
-        return items.count(k) ? items.at(k) : expression().keyed(k);
+        return items.count(k) ? items.at(k) : crt::expression().keyed(k);
     }
 
 
@@ -281,79 +281,16 @@ public:
      */
     expression expr() const
     {
-        auto e = expression();
+        auto e = crt::expression();
 
         for (auto item : items)
         {
-            e = e.append(item.second);
+            e = std::move(e).append(item.second);
         }
         return e;
     }
 
 
-    /**
-     * Return a context containing the resolution of all the items in this
-     * one. If the key already exists in the given cache, that value is used
-     * rather than resolving it.
-     */
-    context resolve(context cache={})
-    {
-        int num_resolved;
-
-        do
-        {
-            num_resolved = 0;
-
-            for (const auto& item : items)
-            {
-                if (cache.contains(item.first))
-                {
-                    continue;
-                }
-                else if (item.second.symbols().size() == 0)
-                {
-                    cache = std::move(cache).insert(item.second);
-                    ++num_resolved;
-                }
-                else if (cache.contains(item.second.symbols()))
-                {
-                    cache = std::move(cache).insert(item.second.resolve(cache, call_adapter()));
-                    ++num_resolved;
-                }
-            }
-        } while (num_resolved > 0);
-
-        return cache;
-    }
-
-
-    template<typename Worker>
-    context resolve(Worker& worker, context cache={})
-    {
-        for (const auto& item : items)
-        {
-            if (cache.contains(item.first))
-            {
-                continue;
-            }
-            else if (item.second.symbols().size() == 0)
-            {
-                cache = std::move(cache).insert(item.second);
-            }
-            else if (cache.contains(item.second.symbols()))
-            {
-                auto task = [e=item.second, cache] (const auto*)
-                {
-                    return e.resolve(cache, call_adapter());
-                };
-                worker.enqueue(item.first, task); 
-            }
-        }
-        return cache;
-    }
-
-
-private:
     //=========================================================================
     /**
      * Internal constructor
@@ -434,7 +371,6 @@ TEST_CASE("context maintains DAG correctly", "[context]")
         REQUIRE(c.erase("B").get_outgoing("B") == context::set_t().insert("A"));
 
         REQUIRE(c.referencing("C") == context::set_t().insert("A").insert("B").insert("C"));
-
     }
     SECTION("for a branching graph A=(B C)")
     {

@@ -2,6 +2,7 @@
 #include "crt-expr.hpp"
 #include "crt-workers.hpp"
 #include "crt-context.hpp"
+#include "crt-algorithm.hpp"
 
 
 
@@ -100,28 +101,43 @@ private:
 
 
 //=============================================================================
-int resolve(std::string source)
+int resolve_source_sync(std::string source)
 {
-    MessageQueue messenger;
-    crt::worker_pool workers(4, &messenger);
-
     auto rules = crt::context::parse(source);
-    auto products = rules.resolve(workers);
+    auto prods = crt::resolve_all(rules);
+
+    std::printf("%s\n", prods.expr().unparse().c_str());
+
+    return 0;
+}
 
 
-    while (products != rules.resolve())
-    {
-        while (auto message = messenger.next())
-        {
-            // std::printf("%s\n", message.message.data());
 
-            if (message.value)
-            {
-                products = rules.resolve(workers, products.insert(message.value));
-            }
-        }
-    }
 
+//=============================================================================
+int resolve_source(std::string source)
+{
+    // MessageQueue messenger;
+    // crt::worker_pool workers(4, &messenger);
+
+    // auto rules = crt::context::parse(source);
+    // auto prods = rules.resolve(workers);
+    // auto iter = 0;
+
+    // while (prods != rules.resolve())
+    // {
+    //     while (auto message = messenger.next())
+    //     {
+    //         std::printf("%s\n", message.message.data());
+
+    //         if (message.value)
+    //         {
+    //             prods = rules.resolve(workers, prods.insert(message.value));
+    //         }
+    //     }
+    //     ++iter;
+    // }
+    // printf("resolved in %d foldings\n", iter);
     return 0;
 }
 
@@ -133,8 +149,8 @@ int main(int argc, const char* argv[])
 {
     for (int n = 0; n < (argc > 1 ? std::atoi(argv[1]) : 1); ++n)
     {
-        resolve("(a=b b=c c=d d=e e=f f=g g=h h=i i=j j=1)");
-        resolve("(a=(b c)    b=(d e) c=(f g)    d=(h i) e=(j k) f=(l m) g=(n o)    h=1 i=2 j=3 k=4 l=5 m=6 n=7 o=8)");
+        resolve_source_sync("(a=b b=c c=d d=e e=f f=g g=h h=i i=j j=1)");
+        resolve_source_sync("(a=(b c) b=(d e) c=(f g) d=(h i) e=(j k) f=(l m) g=(n o) h=1 i=2 j=3 k=4 l=5 m=6 n=7 o=8)");
     }
     return 0;
 }

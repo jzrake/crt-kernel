@@ -5,6 +5,7 @@
 #include "crt-expr.hpp"
 #include "crt-context.hpp"
 #include "crt-workers.hpp"
+#include "crt-algorithm.hpp"
 
 
 
@@ -438,11 +439,11 @@ State resolve_products(State state)
 {
     if (workerPool)
     {
-        state.products = state.rules.resolve(*workerPool, state.products);
+        // state.products = state.rules.resolve(*workerPool, state.products);
     }
     else
     {
-        state.products = state.rules.resolve(state.products);        
+        state.products = crt::resolve_all(state.rules, state.products);
     }
     return state;
 }
@@ -485,9 +486,7 @@ State reduce(State state, int action)
 int main()
 {
     MessageQueue messenger;
-    crt::worker_pool workers(4, &messenger);
-
-
+    // crt::worker_pool workers(4, &messenger);
     // workerPool = &workers;
 
 
