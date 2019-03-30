@@ -443,7 +443,7 @@ State resolve_products(State state)
     }
     else
     {
-        state.products = crt::resolve_all(state.rules, state.products);
+        state.products = crt::resolve_full(state.rules, state.products);
     }
     return state;
 }

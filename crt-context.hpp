@@ -121,7 +121,7 @@ public:
      */
     set_t get_incoming(std::string key) const
     {
-        if (contains(key))
+        if (items.count(key))
         {
             return incoming.at(key);
         }
@@ -137,7 +137,7 @@ public:
      */
     set_t get_outgoing(std::string key) const
     {
-        if (contains(key))
+        if (items.count(key))
         {
             return outgoing.at(key);
         }
@@ -155,24 +155,10 @@ public:
     }
 
 
-    /** Return true if the given key is in the map. */
-    bool contains(std::string key) const
+    /** Return 1 if the given key is in the map. */
+    auto count(std::string key) const
     {
         return items.count(key);
-    }
-
-
-    /** Return true if all of the given keys are in the map. */
-    bool contains(const set_t& keys) const
-    {
-        for (const auto& key : keys)
-        {
-            if (! items.count(key))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
 
@@ -304,7 +290,7 @@ public:
 
 
     /**
-     * out[s] -= e.key for s in e.symbols
+     * o[s] -= e.key for s in e.symbols if s in o
      */
     static dag_t remove_through(dag_t o, expression e)
     {
@@ -320,7 +306,7 @@ public:
 
 
     /**
-     * out[s] += e.key for s in e.symbols
+     * o[s] += e.key for s in e.symbols if s in o
      */
     static dag_t add_through(dag_t o, expression e)
     {

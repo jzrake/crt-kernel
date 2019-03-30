@@ -1,4 +1,4 @@
-CXXFLAGS = -std=c++14 -Wall -I../immer
+CXXFLAGS = -std=c++14 -Wall -I../immer -I../RxCpp/Rx/v2/src
 HEADERS = \
 	crt-algorithm.hpp \
     crt-context.hpp \
