@@ -1,4 +1,4 @@
-CXXFLAGS = -std=c++14 -Wall -I../immer -I../RxCpp/Rx/v2/src
+CXXFLAGS = -std=c++14 -Wall -I../immer -I../RxCpp/Rx/v2/src -fsanitize=undefined
 HEADERS = \
 	crt-algorithm.hpp \
     crt-context.hpp \
