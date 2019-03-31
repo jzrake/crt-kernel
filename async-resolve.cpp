@@ -6,20 +6,6 @@
 
 
 
-//=============================================================================
-// int resolve_source_sync(std::string source)
-// {
-//     auto rules = crt::context::parse(source);
-//     auto prods = crt::resolve_full(rules);
-
-//     std::printf("%s\n", prods.expr().unparse().c_str());
-
-//     return 0;
-// }
-
-
-
-
 /**
  * Returns a function, that when passed to observable::create, yields an
  * observable of resolutions (products) of the given set of rules. If products
@@ -29,7 +15,7 @@
  * if not it returns (no need to complete in that case). The observable
  * completes when the context is fully resolved.
  */
-auto resolution_of(crt::context rules, crt::context prods={})
+auto resolution_of_debug(crt::context rules, crt::context prods={})
 {
     return [rules, p=prods] (auto s)
     {
@@ -87,7 +73,7 @@ int main(int argc, const char* argv[])
     .map([coordination] (auto r)
     {
         std::cout << "interval thread: " << std::this_thread::get_id() << std::endl;
-        return observable<>::create<crt::context>(resolution_of(r)).subscribe_on(coordination);
+        return observable<>::create<crt::context>(resolution_of_debug(r)).subscribe_on(coordination);
     })
     .switch_on_next()
     .as_blocking()
