@@ -15,7 +15,7 @@ namespace crt {
     bool contains(const Map& A, const Set& B);
 
     inline auto insert_invalidate(expression e, context rules, context prods);
-    inline auto resolution_of(crt::context rules, crt::context prods={});
+    inline auto resolution_of(crt::context rules, crt::context prods={}, unsigned int delay_ms=0);
     inline context resolve_only(expression e, context prods);
     inline context resolve_once(context rules, context prods={});
     inline context resolve_full(context rules, crt::context prods={});
@@ -73,14 +73,16 @@ auto crt::insert_invalidate(crt::expression e, crt::context rules, crt::context 
  * if not it returns (no need to complete in that case). The observable
  * completes when the context is fully resolved.
  */
-auto crt::resolution_of(crt::context rules, crt::context prods)
+auto crt::resolution_of(crt::context rules, crt::context prods, unsigned int delay_ms)
 {
-    return [rules, p=prods] (auto s)
+    return [rules, p=prods, delay_ms] (auto s)
     {
         auto prods = p;
 
         while (s.is_subscribed())
         {
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+
             auto new_prods = crt::resolve_once(rules, prods);
 
             if (new_prods.size() == prods.size())

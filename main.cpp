@@ -442,17 +442,21 @@ public:
 
     bool empty() const
     {
+        std::lock_guard<std::mutex> lock(m);
         return is_empty;
     }
 
     void push(const T& new_value)
     {
+        std::lock_guard<std::mutex> lock(m);
         value = new_value;
         is_empty = false;
     }
 
     T pop()
     {
+        std::lock_guard<std::mutex> lock(m);
+
         if (is_empty)
         {
             throw std::out_of_range("pop called on empty single_item_queue");
@@ -464,6 +468,7 @@ public:
 private:
     T value;
     bool is_empty = true;
+    mutable std::mutex m;
 };
 
 
@@ -474,56 +479,83 @@ int main()
 {
     using namespace rxcpp;
 
-    auto event_subject = subjects::subject<Action>();
-    auto event_bus = event_subject.get_subscriber();
-    auto prods_queue = single_item_queue<crt::context>();
 
-
+    // Declare action and state queues, initialize screen
+    //=========================================================================
+    single_item_queue<crt::context> prods_queue;
+    single_item_queue<State> state_queue;
     auto screen = Screen();
     auto state = resolve_products(State::load("out.crt"));
-    auto state_stream = event_subject
-    .get_observable()
-    .scan(state, main_reducer);
 
+
+    // Declare the event bus
+    //=========================================================================
+    auto event_subject = subjects::subject<Action>();
+    auto event_bus = event_subject.get_subscriber();
+    auto event_stream = event_subject.get_observable();
+
+
+    // Declare event pipelines
+    //=========================================================================
+    auto state_stream = event_stream.scan(state, main_reducer);
     auto prods_stream = state_stream.map([] (auto state)
     {
-        return observable<>::create<crt::context>(crt::resolution_of(state.rules, state.products));
+        return observable<>::create<crt::context>(crt::resolution_of(state.rules, state.products, 300))
+        .subscribe_on(observe_on_event_loop());
     })
     .switch_on_next()
     .start_with(state.products);
 
     prods_stream.subscribe([&prods_queue] (auto p) { prods_queue.push(p); });
-    state_stream.subscribe([&] (auto s)
+    state_stream.subscribe([&state_queue] (auto s) { state_queue.push(s); });
+
+
+    // Helpers to interpret event codes
+    //=========================================================================
+    auto is_user_event = [] (int c)
     {
-        screen.render(s);
-    });
+        return c != ERR;
+    };
+
+    auto requires_screen_reset = [] (int c)
+    {
+        return c == 410 || c == -1 || c == KEY_CONTROL('r');
+    };
+
+    auto is_exit_event = [] (int c, State state)
+    {
+        return c == KEY_CONTROL('c') || (c == KEY_CONTROL('d') && state.text.empty());
+    };
 
 
-    screen.render(state);
-
-
+    // Main loop
+    //=========================================================================
     while (true)
     {
         int c = screen.get_character();
 
-        if (c == ERR)
+        if (is_user_event(c))
         {
-            if (! prods_queue.empty())
+            if (is_exit_event(c, state))
             {
-                event_bus.on_next(prods_queue.pop());
+                break;
+            }
+            else if (requires_screen_reset(c))
+            {
+                screen.reset();
+            }
+            else
+            {
+                event_bus.on_next(c);
             }
         }
-        else if (c == 410 || c == -1 || c == KEY_CONTROL('r'))
+        else if (! prods_queue.empty())
         {
-            screen.reset();
+            event_bus.on_next(prods_queue.pop());
         }
-        else if (c == KEY_CONTROL('c') || (c == KEY_CONTROL('d') && state.text.empty()))
+        else if (! state_queue.empty())
         {
-            break;
-        }
-        else
-        {
-            event_bus.on_next(c);
+            screen.render(state_queue.pop());
         }
     }
 
