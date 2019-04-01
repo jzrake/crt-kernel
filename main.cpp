@@ -29,6 +29,7 @@
 struct Action
 {
     Action(int key) : key(key) {}
+    Action(crt::context products) : products(products) {}
 
     int key = -1;
     crt::context products;
@@ -411,6 +412,12 @@ State main_reducer(State state, Action action)
 {
     auto c = action.key;
 
+    if (c == -1)
+    {
+        state.products = action.products;
+        return state;
+    }
+
     try {
         state.message = "last event: " + std::to_string(c);            
         state.success = true;
@@ -428,21 +435,70 @@ State main_reducer(State state, Action action)
 
 
 //=============================================================================
+template<typename T>
+struct single_item_queue
+{
+public:
+
+    bool empty() const
+    {
+        return is_empty;
+    }
+
+    void push(const T& new_value)
+    {
+        value = new_value;
+        is_empty = false;
+    }
+
+    T pop()
+    {
+        if (is_empty)
+        {
+            throw std::out_of_range("pop called on empty single_item_queue");
+        }
+        is_empty = true;
+        return value;
+    }
+
+private:
+    T value;
+    bool is_empty = true;
+};
+
+
+
+
+//=============================================================================
 int main()
 {
     using namespace rxcpp;
-    subjects::subject<Action> event_bus;
+
+    auto event_subject = subjects::subject<Action>();
+    auto event_bus = event_subject.get_subscriber();
+    auto prods_queue = single_item_queue<crt::context>();
 
 
     auto screen = Screen();
     auto state = resolve_products(State::load("out.crt"));
-    auto state_stream = event_bus
+    auto state_stream = event_subject
     .get_observable()
-    .scan(state, main_reducer)
-    .map(resolve_products);
+    .scan(state, main_reducer);
+
+    auto prods_stream = state_stream.map([] (auto state)
+    {
+        return observable<>::create<crt::context>(crt::resolution_of(state.rules, state.products));
+    })
+    .switch_on_next()
+    .start_with(state.products);
+
+    prods_stream.subscribe([&prods_queue] (auto p) { prods_queue.push(p); });
+    state_stream.subscribe([&] (auto s)
+    {
+        screen.render(s);
+    });
 
 
-    state_stream.subscribe([&] (auto s) { screen.render(s); });
     screen.render(state);
 
 
@@ -452,7 +508,10 @@ int main()
 
         if (c == ERR)
         {
-            continue;
+            if (! prods_queue.empty())
+            {
+                event_bus.on_next(prods_queue.pop());
+            }
         }
         else if (c == 410 || c == -1 || c == KEY_CONTROL('r'))
         {
@@ -464,9 +523,11 @@ int main()
         }
         else
         {
-            event_bus.get_subscriber().on_next(c);
+            event_bus.on_next(c);
         }
     }
+
+    event_bus.on_completed();
     state.dump("out.crt");
 
     return 0;
