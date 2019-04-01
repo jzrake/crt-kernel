@@ -1,10 +1,10 @@
 #include <fstream>
 #include <queue>
+#include <rxcpp/rx.hpp>
+#include <immer/map.hpp>
 #include <curses.h>
-#include "immer/map.hpp"
 #include "crt-expr.hpp"
 #include "crt-context.hpp"
-#include "crt-workers.hpp"
 #include "crt-algorithm.hpp"
 
 
@@ -21,84 +21,19 @@
 #define PAIR_SELECTED_FOCUS 4
 #define COMPONENT_CONSOLE 0
 #define COMPONENT_LIST 1
-static crt::worker_pool* workerPool = nullptr;
 
 
 
 
 //=============================================================================
-struct Message
+struct Action
 {
-    Message() {}
-    Message(std::string name, crt::expression value=crt::expression())
-    : name(name), value(value) {}
+    Action(int key) : key(key) {}
 
-    operator bool() const
-    {
-        return value;
-    }
-
-    std::string name;
-    crt::expression value;
+    int key = -1;
+    crt::context products;
 };
-
-
-
-
-//=============================================================================
-class MessageQueue : public crt::worker_pool::listener_t
-{
-public:
-
-    void task_starting(int worker, std::string name) override
-    {
-        char message[1024];
-        std::snprintf(message, 1024, "task '%s' starting on worker %d\n", name.data(), worker);
-
-        std::lock_guard<std::mutex> lock(mutex);
-        messages.push({message});
-    }
-
-    void task_canceled(int worker, std::string name) override
-    {
-        char message[1024];
-        std::snprintf(message, 1024, "task '%s' canceled on worker %d\n", name.data(), worker);
-
-        std::lock_guard<std::mutex> lock(mutex);
-        messages.push({message});
-    }
-
-    void task_finished(int worker, std::string name, crt::worker_pool::product_t result) override
-    {
-        // std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        std::lock_guard<std::mutex> lock(mutex);
-        messages.push({name, result});
-    }
-
-    bool empty() const
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        return messages.empty();
-    }
-
-    Message next()
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-
-        if (messages.empty())
-        {
-            return Message();
-        }
-        auto message = messages.front();
-        messages.pop();
-        return message;
-    }
-
-private:
-    std::queue<Message> messages;
-    mutable std::mutex mutex;
-};
-
+    
 
 
 
@@ -437,14 +372,7 @@ State cursor_to_end(State state)
 
 State resolve_products(State state)
 {
-    if (workerPool)
-    {
-        // state.products = state.rules.resolve(*workerPool, state.products);
-    }
-    else
-    {
-        state.products = crt::resolve_full(state.rules, state.products);
-    }
+    state.products = crt::resolve_full(state.rules, state.products);
     return state;
 }
 
@@ -452,9 +380,9 @@ State resolve_products(State state)
 
 
 //=============================================================================
-State reduce(State state, int action)
+State reduce(State state, int key)
 {
-    switch (action)
+    switch (key)
     {
         case KEY_CONTROL('d'): return delete_text_backward  (state);
         case KEY_CONTROL('k'): return delete_text_to_end    (state);
@@ -464,7 +392,7 @@ State reduce(State state, int action)
         case KEY_RIGHT:        return increment_text_cursor (state);
         case KEY_UP:           return decrement_selected_row(state);
         case KEY_DOWN:         return increment_selected_row(state);
-        case KEY_RETURN:       return delete_text_to_end(cursor_to_start(resolve_products(insert_rule_from_text(state))));
+        case KEY_RETURN:       return delete_text_to_end(cursor_to_start(insert_rule_from_text(state)));
         case KEY_MOUSE:        return state;
         case KEY_TAB: state.focus_component = (state.focus_component + 1) % 2; return state;
         case KEY_DELETE:
@@ -474,7 +402,24 @@ State reduce(State state, int action)
         default:
             return state.focus_component == COMPONENT_LIST
             ? state
-            : append_char_to_entry(state, action);
+            : append_char_to_entry(state, key);
+    }
+    return state;
+}
+
+State main_reducer(State state, Action action)
+{
+    auto c = action.key;
+
+    try {
+        state.message = "last event: " + std::to_string(c);            
+        state.success = true;
+        state = reduce(state, c);
+    }
+    catch (const std::exception& e)
+    {
+        state.message = e.what();
+        state.success = false;
     }
     return state;
 }
@@ -485,15 +430,19 @@ State reduce(State state, int action)
 //=============================================================================
 int main()
 {
-    MessageQueue messenger;
-    // crt::worker_pool workers(4, &messenger);
-    // workerPool = &workers;
+    using namespace rxcpp;
+    subjects::subject<Action> event_bus;
 
 
     auto screen = Screen();
     auto state = resolve_products(State::load("out.crt"));
+    auto state_stream = event_bus
+    .get_observable()
+    .scan(state, main_reducer)
+    .map(resolve_products);
 
 
+    state_stream.subscribe([&] (auto s) { screen.render(s); });
     screen.render(state);
 
 
@@ -503,23 +452,7 @@ int main()
 
         if (c == ERR)
         {
-            if (! messenger.empty())
-            {
-                while (auto message = messenger.next())
-                {
-                    if (message.value)
-                    {
-                        state.message = "async update: " + message.name;
-                        state.products = state.products.insert(message.value);
-                    }
-                    else
-                    {
-                        state.message = message.name;
-                    }
-                }
-                state = resolve_products(state);
-                screen.render(state);
-            }
+            continue;
         }
         else if (c == 410 || c == -1 || c == KEY_CONTROL('r'))
         {
@@ -531,17 +464,7 @@ int main()
         }
         else
         {
-            try {
-                state.message = "last event: " + std::to_string(c);            
-                state.success = true;
-                state = reduce(state, c);
-            }
-            catch (const std::exception& e)
-            {
-                state.message = e.what();
-                state.success = false;
-            }
-            screen.render(state);
+            event_bus.get_subscriber().on_next(c);
         }
     }
     state.dump("out.crt");
