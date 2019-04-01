@@ -555,7 +555,7 @@ int main()
         }
         else if (! state_queue.empty())
         {
-            screen.render(state_queue.pop());
+            screen.render(state = state_queue.pop());
         }
     }
 
