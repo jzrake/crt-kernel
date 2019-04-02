@@ -15,9 +15,15 @@ namespace crt {
 
 //=============================================================================
 /**
- * This class extends an immutable map<std::string, crt::expression> with
- * methods to resolve a set of expressions against one another. It also
- * facilitates asynchronous update patterns for carrying out that resolution.
+ * This class extends an immutable map<std::string, crt::expression> to serve
+ * as a dependency graph, providing methods to quickly retrieve dependencies
+ * between the contained expressions. In particular, it makes the
+ * determination of downstream rules (the ones directly or indirectly
+ * referencing another) fast by maintaining outgoing edges. This is
+ * just-as-good as computing the topological sort on each insertion. Worst
+ * case, the insertion of a new rule is O(N+S) in the number of items N and
+ * the number of symbols (incoming edge count) S. Replacement of existing
+ * rules is O(S).
  */
 class crt::context
 {
@@ -37,7 +43,7 @@ public:
     {
         auto c = context();
 
-        for (auto e : crt::parse(source))
+        for (const auto& e : crt::parse(source))
         {
             if (! e->key().empty())
             {
@@ -68,7 +74,8 @@ public:
 
     /**
      * Insert the given expression into the context, using its keyword as the
-     * name.
+     * name. std::invalid_argument is thrown if the addition would form a
+     * dependency cycle.
      */
     context insert(crt::expression e) const
     {
@@ -223,8 +230,8 @@ public:
 
 
     /**
-     * Return a const reference to the expression at the given key, or throw
-     * std::out_of_range if it does not exist.
+     * Return a const reference to the expression at the given key. Throw
+     * std::out_of_range if it does not exist at all.
      */
     const crt::expression& at(std::string k) const
     {

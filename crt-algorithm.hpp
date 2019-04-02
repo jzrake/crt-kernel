@@ -15,10 +15,10 @@ namespace crt {
     bool contains(const Map& A, const Set& B);
 
     inline auto insert_invalidate(expression e, context rules, context prods);
-    inline auto resolution_of(crt::context rules, crt::context prods={}, unsigned int delay_ms=0);
-    inline context resolve_only(expression e, context prods);
+    inline auto resolution_of(context rules, context prods={}, unsigned int delay_ms=0);
+    inline context resolve_only(expression e, context prods={});
     inline context resolve_once(context rules, context prods={});
-    inline context resolve_full(context rules, crt::context prods={});
+    inline context resolve_full(context rules, context prods={});
 }
 
 
@@ -57,7 +57,7 @@ bool crt::contains(const Map& A, const Set& B)
  * the context (rules), and deleting from the map (prods) any of that
  * context's rules that reference e.
  */
-auto crt::insert_invalidate(crt::expression e, crt::context rules, crt::context prods)
+auto crt::insert_invalidate(expression e, context rules, context prods)
 {
     return std::make_pair(
         rules.insert(e),
@@ -66,14 +66,14 @@ auto crt::insert_invalidate(crt::expression e, crt::context rules, crt::context 
 
 /**
  * Returns a function, that when passed to observable::create, yields an
- * observable of resolutions (products) of the given set of rules. If products
- * is non-empty, then its entries should be up-to-date with the rules. The
+ * observable of resolutions (prods) of the given set of rules. If prods is
+ * non-empty, then its entries should be up-to-date with the rules. The
  * function calls the subscriber with the products, as they mature, once per
  * resolve cycle. On each generation it checks to see if it's subscribed, and
- * if not it returns (no need to complete in that case). The observable
- * completes when the context is fully resolved.
+ * if not it returns. The observable completes when the context is fully
+ * resolved.
  */
-auto crt::resolution_of(crt::context rules, crt::context prods, unsigned int delay_ms)
+auto crt::resolution_of(context rules, context prods, unsigned int delay_ms)
 {
     return [rules, p=prods, delay_ms] (auto s)
     {
@@ -82,8 +82,7 @@ auto crt::resolution_of(crt::context rules, crt::context prods, unsigned int del
         while (s.is_subscribed())
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-
-            auto new_prods = crt::resolve_once(rules, prods);
+            auto new_prods = resolve_once(rules, prods);
 
             if (new_prods.size() == prods.size())
             {
@@ -95,7 +94,7 @@ auto crt::resolution_of(crt::context rules, crt::context prods, unsigned int del
     };
 }
 
-crt::context crt::resolve_full(crt::context rules, crt::context prods)
+crt::context crt::resolve_full(context rules, context prods)
 {
     while (true)
     {
@@ -105,12 +104,21 @@ crt::context crt::resolve_full(crt::context rules, crt::context prods)
         {
             break;
         }
-        prods = new_prods;
+        prods = std::move(new_prods);
     }
     return prods;
 }
 
-crt::context crt::resolve_only(crt::expression e, crt::context prods)
+crt::context crt::resolve_once(context rules, context prods)
+{
+    auto trans = [] (auto p, auto i)
+    {
+        return resolve_only(i.second, p);
+    };
+    return accumulate(rules, prods, trans);
+}
+
+crt::context crt::resolve_only(expression e, context prods)
 {
     if (! prods.count(e.key()))
     {
@@ -120,17 +128,8 @@ crt::context crt::resolve_only(crt::expression e, crt::context prods)
         }
         else if (contains(prods, e.symbols()))
         {
-            return prods.insert(e.resolve(prods, crt::call_adapter()));
+            return prods.insert(e.resolve(prods, call_adapter()));
         }
     }
     return prods;
-}
-
-crt::context crt::resolve_once(crt::context rules, crt::context prods)
-{
-    auto trans = [] (auto p, auto i)
-    {
-        return resolve_only(i.second, p);
-    };
-    return crt::accumulate(rules, prods, trans);
 }
