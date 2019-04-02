@@ -21,9 +21,9 @@ namespace crt {
  * determination of downstream rules (the ones directly or indirectly
  * referencing another) fast by maintaining outgoing edges. This is
  * just-as-good as computing the topological sort on each insertion. Worst
- * case, the insertion of a new rule is O(N+S) in the number of items N and
- * the number of symbols (incoming edge count) S. Replacement of existing
- * rules is O(S).
+ * case, the insertion of a new rule is O(N+S) in the number N of existing
+ * items, and the number of symbols (incoming edge count) S immediately
+ * referenced by the inserted item. Replacement of existing rules is O(S).
  */
 class crt::context
 {
@@ -168,6 +168,10 @@ public:
         return items.count(key);
     }
 
+    bool empty() const
+    {
+        return items.size() == 0;
+    }
 
     /**
      * Return true if addition of the given rule would create a dependency

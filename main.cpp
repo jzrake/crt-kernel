@@ -76,6 +76,7 @@ struct State
     std::string message;
     crt::context rules;
     crt::context products;
+    crt::context products_prev;
 };
 
 
@@ -246,9 +247,14 @@ private:
             }
             catch (const std::out_of_range& e)
             {
-                wprintw(win, "%s", "<not cached>");
+                try {
+                    wprintw(win, "%s", (state.products_prev.at(item.first).keyed("").unparse() + " <pending>").data());
+                }
+                catch (const std::out_of_range& e)
+                {
+                    wprintw(win, "%s", "<not cached>");                
+                }
             }
-
             ++row;
         }
     }
@@ -414,7 +420,14 @@ State main_reducer(State state, Action action)
 
     if (c == -1)
     {
-        state.products = action.products;
+        if (action.products.empty())
+        {
+            state.products_prev = state.products;
+        }
+        else
+        {
+            state.products = action.products;
+        }
         return state;
     }
 
@@ -501,7 +514,8 @@ int main()
     auto prods_stream = state_stream.map([] (auto state)
     {
         return observable<>::create<crt::context>(crt::resolution_of(state.rules, state.products, 300))
-        .subscribe_on(observe_on_event_loop());
+        .subscribe_on(observe_on_event_loop())
+        .concat(observable<>::just(crt::context()));
     })
     .switch_on_next()
     .start_with(state.products);
