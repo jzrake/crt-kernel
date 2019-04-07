@@ -16,7 +16,7 @@ I have also provided a few dependency graph resolution schemes, which use [incre
 
 
 ### `crt::expression`
-An `expression` is a sum-type, having one of the following types:
+An `expression` is a [sum-type](https://en.wikipedia.org/wiki/Tagged_union):
 - `none`
 - `i32`
 - `f64`
@@ -26,10 +26,10 @@ An `expression` is a sum-type, having one of the following types:
 - `function`
 - `table`
 
-There is an intentional similarity to Lua in the above scheme, and indeed tables in `crt` function mostly the same as Lua tables. Also, `data` is like a Lua user data. Functions are mappings from one expression to another and are defined as C++ lambdas, `std::function<expression(expression)>`.
+There is an intentional similarity to Lua in the above scheme, and indeed tables in `crt` function mostly the same as Lua tables, and `data` is like a Lua user data. Functions are mappings from one expression to another and are defined as `std::function<expression(expression)>`.
 
-What separates the `crt::expression` from the JS and Lua object models is the `symbol` primitive type. It allows expressions to serve as templates for other expressions. The `expression::resolve` method takes a scope object (`string -> expression`), and returns a "concrete" expression, with its parts resolved recusively. Expressions can be of higher order of course, by resolving into other expressions which themselves contain symbols.
+What separates the `crt::expression` from the JS and Lua object models is the `symbol` primitive type. It allows expressions to serve as templates for other expressions. The `expression::resolve` method takes a scope object (`string -> expression`), and returns a "product" expression, whose parts are resolved recusively. Expressions can be of higher order, by resolving into other expressions which themselves contain symbols.
 
 
 ### `crt::context`
-The context is a (`string -> expression`), which also maintains ingoing and outgoing edges representing dependencies between different expressions. It ensures the graph remains acyclic, and effectively provides (topological sort)[https://en.wikipedia.org/wiki/Topological_sorting] operations to optimal resolution to build products. The context is immutable, returing cheap copies of itself on insert/erase operations. Algorithms for context resolution are provided in `algorithm.hpp`.
+The context is a mapping (`string -> expression`), which maintains ingoing and outgoing edges representing dependencies between different expressions. It ensures the graph remains acyclic, and effectively provides (topological sort)[https://en.wikipedia.org/wiki/Topological_sorting] operations to optimize the resolution to build products. The context is immutable, returing cheap copies of itself on insert/erase operations (it's based on the `immer::map` and `immer::set` containers). Algorithms for context resolution are provided in `algorithm.hpp`. 
