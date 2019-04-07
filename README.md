@@ -1,12 +1,22 @@
 # `crt::kernel`
+_A lisp-inspired "concurrent runtime" in C++11_
 
-## A Lisp-inspired "concurrent runtime" in C++11
+This library provides a few classes that work together to manage data flow in [dependency graph](https://en.wikipedia.org/wiki/Dependency_graph). Originally, the need arose from an application for scientific data visualization - where bits of data to be displayed are defined in terms of one another, the way formulas in a spreadsheet can reference the values of other cells, which can themselves be formulas. This pattern also arises in physics simulations, where each stage of an update scheme depends on the completion of preceding stages.
 
-This library provides a few classes that work together to manage complex dependencies between data structures, as arise in e.g. task-based parallism, or in UI applications. The approach is analogous to the way a Makefile arranges rules and build products in an acyclic graph structure.
+The code uses a purely [functional](https://en.wikipedia.org/wiki/Functional_programming) programming style, where the data structures are immutable, and algorithms can be composed to define new ones in terms old ones. This approach trivializes concurrent execution, but would naively introduce lots of overhead from the implied rate of data copying. This overhead is removed by the use of [persistent data structures](https://en.wikipedia.org/wiki/Persistent_data_structure) from the excellent [immer](https://github.com/arximboldi/immer) library.
 
-Rules are key-expression pairs, where the __key__ is a string, and the __expression__ is a data structure that converts losslessly to and from Lisp-style source strings.
+I have also provided a few dependency graph resolution schemes, which use [incremental computing](https://en.wikipedia.org/wiki/Incremental_computing) to eliminate redundant computations when only subsets of the graph have been invalidated. These schemes can be executed asynchronously - generating an observable stream of increasingly resolved "build products". You can get this behavior by (optionally) including [Kirk Shoop's](https://github.com/ReactiveX/RxCpp/commits?author=kirkshoop) excellent [Reactive Extensions](http://reactivex.io) implementation for C++, [`RxCpp`](https://github.com/ReactiveX/RxCpp).
 
-An `expression` is a sum-type having one of the following types:
+
+## Data structures
+`crt` is based around three basic facilities:
+- `expression`: the basic object model
+- `context`: a mapping of `(string -> expression)` that maintains a dependency graph
+- `parser`: a very basic lisp-style parser to define user expressions at runtime
+
+
+### `crt::expression`
+An `expression` is a sum-type, having one of the following types:
 - `none`
 - `i32`
 - `f64`
@@ -18,6 +28,8 @@ An `expression` is a sum-type having one of the following types:
 
 There is an intentional similarity to Lua in the above scheme, and indeed tables in `crt` function mostly the same as Lua tables. Also, `data` is like a Lua user data. Functions are mappings from one expression to another and are defined as C++ lambdas, `std::function<expression(expression)>`.
 
-The real power of the `crt` language derives from the `symbol` primitive type. Expressions containing symbols can be resolved by a `scope` to another expression. This may be done incrementally to resolve an expression through a hierarchy of scopes to obtain a concrete value.
+What separates the `crt::expression` from the JS and Lua object models is the `symbol` primitive type. It allows expressions to serve as templates for other expressions. The `expression::resolve` method takes a scope object (`string -> expression`), and returns a "concrete" expression, with its parts resolved recusively. Expressions can be of higher order of course, by resolving into other expressions which themselves contain symbols.
 
-A set of expressions may be assigned to distinct keys, and have symbols referencing one another. This is a declarative program like a `Makefile`, and just as in make, the order of the declarations does not matter. `crt` provides a class, the `crt::kernel`, which maintains an acyclic graph structure representing the data flow among a set of expressions. The kernel also provides facilities for propagating updates through the graph incrementally as new data is entered into it. These updates can be done on separate compute threads, making `crt` viable as a data concurrency language for parallel processing of e.g. software graphics pipelines or physics simulations.
+
+### `crt::context`
+The context is a (`string -> expression`), which also maintains ingoing and outgoing edges representing dependencies between different expressions. It ensures the graph remains acyclic, and effectively provides (topological sort)[https://en.wikipedia.org/wiki/Topological_sorting] operations to optimal resolution to build products. The context is immutable, returing cheap copies of itself on insert/erase operations. Algorithms for context resolution are provided in `algorithm.hpp`.
